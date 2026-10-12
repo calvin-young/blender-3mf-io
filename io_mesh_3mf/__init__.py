@@ -161,7 +161,17 @@ class ThreeMFPreferences(bpy.types.AddonPreferences):
     # Scale settings
     default_global_scale: bpy.props.FloatProperty(
         name="Global Scale",
-        description="Scale factor applied during import and export. Use 0.001 to convert mm to m",
+        description="Scale factor applied during export, on top of automatic unit conversion",
+        default=1.0,
+        soft_min=0.001,
+        soft_max=1000.0,
+        min=1e-6,
+        max=1e6,
+    )
+
+    default_import_global_scale: bpy.props.FloatProperty(
+        name="Global Scale",
+        description="Scale factor applied during import, on top of automatic unit conversion",
         default=1.0,
         soft_min=0.001,
         soft_max=1000.0,
@@ -417,6 +427,7 @@ class ThreeMFPreferences(bpy.types.AddonPreferences):
         col = layout.column(align=True)
         col.label(text="Scene Unit:", icon="DRIVER_DISTANCE")
         col.prop(self, "default_scene_unit", text="")
+        col.prop(self, "default_import_global_scale")
         col.separator()
         col.prop(self, "default_import_materials", icon="MATERIAL")
         col.prop(self, "default_reuse_materials", icon="LINKED")

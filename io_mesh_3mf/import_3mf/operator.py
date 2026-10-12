@@ -288,7 +288,7 @@ class Import3MF(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
         """Initialize properties from preferences when the import dialog opens."""
         prefs = context.preferences.addons.get(__package__.rsplit(".", 1)[0])
         if prefs and prefs.preferences:
-            self.global_scale = prefs.preferences.default_global_scale
+            self.global_scale = prefs.preferences.default_import_global_scale
             self.import_materials = prefs.preferences.default_import_materials
             self.reuse_materials = prefs.preferences.default_reuse_materials
             self.import_location = prefs.preferences.default_import_location
