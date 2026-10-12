@@ -481,11 +481,15 @@ class Export3MF(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
         items=_thumbnail_image_items,
     )
 
+    # No FILE_PATH subtype: its browse button can't work here, because Blender
+    # can't open a second file browser while the export file browser is open.
     thumbnail_image_path: bpy.props.StringProperty(
         name="Path",
-        description="Path to a custom image file to use as the thumbnail",
+        description=(
+            "Full path to a custom image file to use as the thumbnail. "
+            "Paste the path here, or open the image in Blender first and pick it from the list"
+        ),
         default="",
-        subtype="FILE_PATH",
     )
 
     def invoke(self, context, event):
