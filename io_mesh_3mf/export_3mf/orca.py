@@ -365,12 +365,15 @@ class OrcaExporter(BaseExporter):
         debug(f"Export structure: {len(groups)} groups, {len(ungrouped)} ungrouped objects")
 
         # Center all objects: XY midpoint → origin, Z floor → 0
+        # (skipped when the user chose to keep their own placement).
         scale_mat = mathutils.Matrix.Scale(global_scale, 4)
-        all_corners = [
-            scale_mat @ obj.matrix_world @ mathutils.Vector(corner)
-            for obj in mesh_objects
-            for corner in obj.bound_box
-        ]
+        all_corners = []
+        if ctx.options.export_location == "CENTER":
+            all_corners = [
+                scale_mat @ obj.matrix_world @ mathutils.Vector(corner)
+                for obj in mesh_objects
+                for corner in obj.bound_box
+            ]
         if all_corners:
             xs = [v.x for v in all_corners]
             ys = [v.y for v in all_corners]

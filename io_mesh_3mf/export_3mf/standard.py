@@ -568,7 +568,8 @@ class StandardExporter(BaseExporter):
         """
         ctx = self.ctx
         transformation = mathutils.Matrix.Scale(global_scale, 4)
-        transformation = self._compute_centering_offset(blender_objects, transformation) @ transformation
+        if ctx.options.export_location == "CENTER":
+            transformation = self._compute_centering_offset(blender_objects, transformation) @ transformation
 
         # Detect linked duplicates if component optimization is enabled
         component_groups = {}
