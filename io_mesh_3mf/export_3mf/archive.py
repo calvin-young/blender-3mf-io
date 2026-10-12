@@ -39,12 +39,35 @@ from ..common.constants import (
 )
 
 
+class _ThreeMFArchive(zipfile.ZipFile):
+    """
+    ZIP archive that writes the OPC package parts when it is closed.
+
+    ``_rels/.rels`` and ``[Content_Types].xml`` are written last so they
+    only describe parts that actually ended up in the archive. For example,
+    the thumbnail relationship is omitted when no thumbnail was written
+    (thumbnail mode NONE, or the thumbnail render failed).
+    """
+
+    annotations: Optional[Annotations] = None
+
+    def close(self) -> None:
+        annotations, self.annotations = self.annotations, None
+        try:
+            if annotations is not None and self.fp is not None:
+                annotations.write_rels(self)
+                annotations.write_content_types(self)
+        finally:
+            super().close()
+
+
 def create_archive(filepath: str, safe_report: Callable, compression_level: int = 3) -> Optional[zipfile.ZipFile]:
     """
     Creates an empty 3MF archive.
 
     The archive is complete according to the 3MF specs except that the actual
-    3dmodel.model file is missing.
+    3dmodel.model file is missing. The OPC relationships and content types are
+    written when the archive is closed.
 
     :param filepath: The path to write the file to.
     :param safe_report: Callable for reporting errors/warnings.
@@ -52,15 +75,13 @@ def create_archive(filepath: str, safe_report: Callable, compression_level: int 
     :return: A zip archive that other functions can add things to.
     """
     try:
-        archive = zipfile.ZipFile(
+        archive = _ThreeMFArchive(
             filepath, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=compression_level
         )
 
         # Store the file annotations we got from imported 3MF files.
-        annotations = Annotations()
-        annotations.retrieve()
-        annotations.write_rels(archive)
-        annotations.write_content_types(archive)
+        archive.annotations = Annotations()
+        archive.annotations.retrieve()
         must_preserve(archive)
     except EnvironmentError as e:
         error(f"Unable to write 3MF archive to {filepath}: {e}")
