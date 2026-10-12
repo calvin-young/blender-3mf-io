@@ -140,6 +140,7 @@ API_CAPABILITIES = frozenset(
         "flatten_hierarchy",  # Option to flatten parented meshes into top-level build items (export)
         "modifier_parts",  # Orca/BambuStudio modifier part subtypes (import, export, inspect)
         "slicer_profile",  # Named slicer profile selection (export)
+        "export_location",  # Center objects on origin or keep their placement (export)
     }
 )
 
@@ -919,6 +920,7 @@ def export_3mf(
     export_hidden: bool = False,
     skip_disabled: bool = True,
     global_scale: float = 1.0,
+    export_location: str = "CENTER",
     use_mesh_modifiers: bool = True,
     coordinate_precision: int = 9,
     compression_level: int = 3,
@@ -952,6 +954,11 @@ def export_3mf(
     :param skip_disabled: Skip objects disabled for rendering (camera icon)
         and objects in excluded/hidden collections (default *True*).
     :param global_scale: Scale multiplier (default 1.0).
+    :param export_location: ``"CENTER"`` (default) moves the exported objects
+        so their combined bounding box is centered on the origin in XY with
+        its lowest point at Z=0.  ``"KEEP"`` writes object positions as they
+        are in the Blender scene (the Orca exporter's built-in bed template
+        still maps the scene origin to the bed center).
     :param use_mesh_modifiers: Apply modifiers before exporting.
     :param coordinate_precision: Decimal precision for vertex coordinates.
     :param compression_level: ZIP deflate compression level (0–9, default 3).
@@ -1080,6 +1087,7 @@ def export_3mf(
         export_hidden=export_hidden,
         include_disabled=not skip_disabled,
         global_scale=global_scale,
+        export_location=export_location,
         use_mesh_modifiers=use_mesh_modifiers,
         coordinate_precision=coordinate_precision,
         compression_level=compression_level,

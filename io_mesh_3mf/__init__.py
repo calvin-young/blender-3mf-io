@@ -158,6 +158,20 @@ class ThreeMFPreferences(bpy.types.AddonPreferences):
         default=True,
     )
 
+    default_export_location: bpy.props.EnumProperty(
+        name="Export Location",
+        description="Default placement of exported objects in the 3MF file",
+        items=[
+            (
+                "CENTER",
+                "Center and Drop to Bed",
+                "Center objects on the origin in X and Y, and move them down so the lowest point is at Z=0",
+            ),
+            ("KEEP", "Keep Original", "Keep object positions from the Blender scene"),
+        ],
+        default="CENTER",
+    )
+
     # Scale settings
     default_global_scale: bpy.props.FloatProperty(
         name="Global Scale",
@@ -403,6 +417,7 @@ class ThreeMFPreferences(bpy.types.AddonPreferences):
         col.prop(self, "default_export_hidden", icon="HIDE_OFF")
         col.prop(self, "default_apply_modifiers", icon="MODIFIER")
         col.separator()
+        col.prop(self, "default_export_location")
         col.prop(self, "default_coordinate_precision")
         col.prop(self, "default_global_scale")
         col.separator()
