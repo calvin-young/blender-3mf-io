@@ -102,7 +102,8 @@ def _write_custom_thumbnail(
 
     if img is None:
         # Fallback: treat as file path (API callers may pass a path).
-        abs_path = bpy.path.abspath(image_ref)
+        # Strip quotes left by pasting a path (e.g. Windows "Copy as path").
+        abs_path = bpy.path.abspath(image_ref.strip().strip('"'))
         if not os.path.isfile(abs_path):
             warn(f"Custom thumbnail image not found: {image_ref}")
             return
