@@ -49,7 +49,7 @@ from ..common.extensions import PRODUCTION_EXTENSION, ORCA_EXTENSION
 from ..common.logging import debug, timing_debug, warn, error
 from ..common.xml import format_transformation
 
-from .geometry import _raw_geometry_cache
+from .geometry import _raw_geometry_cache, format_triangles_xml, format_vertices_xml
 from .materials import (
     ORCA_FILAMENT_CODES,
     collect_face_colors,
@@ -524,20 +524,9 @@ class OrcaExporter(BaseExporter):
         co = co_flat.reshape(n_verts, 3)
         _t_vert1 = time.perf_counter()
         timing_debug(f"orca write_vertices foreach_get ({n_verts} verts)", (_t_vert1 - _t_vert0) * 1000)
-        fmt = f"%.{decimals}g"
-        xs = np.char.mod(fmt, co[:, 0]).tolist()
-        ys = np.char.mod(fmt, co[:, 1]).tolist()
-        zs = np.char.mod(fmt, co[:, 2]).tolist()
-        _t_vert2 = time.perf_counter()
-        timing_debug(f"orca write_vertices str format ({n_verts} verts)", (_t_vert2 - _t_vert1) * 1000)
-        vparts = ["<vertices>"]
-        vappend = vparts.append
-        for i in range(n_verts):
-            vappend(f'<vertex x="{xs[i]}" y="{ys[i]}" z="{zs[i]}"/>')
-        vparts.append("</vertices>")
-        _raw_geometry_cache.setdefault(id(mesh_elem), {})["vertices"] = "".join(vparts)
+        _raw_geometry_cache.setdefault(id(mesh_elem), {})["vertices"] = format_vertices_xml(co, decimals)
         _t_vert3 = time.perf_counter()
-        timing_debug(f"orca write_vertices build raw XML ({n_verts} verts)", (_t_vert3 - _t_vert2) * 1000)
+        timing_debug(f"orca write_vertices format + build raw XML ({n_verts} verts)", (_t_vert3 - _t_vert1) * 1000)
 
         # Generate segmentation strings from UV texture if in PAINT mode.
         # Non-normal parts (modifiers, support, negative) get no paint data.
@@ -650,8 +639,6 @@ class OrcaExporter(BaseExporter):
         mesh.loop_triangles.foreach_get("vertices", verts_flat)
         mat_flat = np.empty(n_tris, dtype=np.int32)
         mesh.loop_triangles.foreach_get("material_index", mat_flat)
-        verts_list = verts_flat.reshape(n_tris, 3).tolist()
-        mat_list = mat_flat.tolist()
         _t_tri1 = time.perf_counter()
         timing_debug(f"orca write_triangles foreach_get ({n_tris} tris)", (_t_tri1 - _t_tri0) * 1000)
 
@@ -678,52 +665,63 @@ class OrcaExporter(BaseExporter):
         has_segmentation = bool(segmentation_strings)
         has_seam = bool(seam_strings)
         has_support = bool(support_strings)
-        tparts = ["<triangles>"]
-        tappend = tparts.append
+        if not (has_segmentation or has_seam or has_support):
+            # Fast path: only the per-slot paint fragment varies per triangle.
+            raw_triangles = format_triangles_xml(
+                verts_flat.reshape(n_tris, 3),
+                mat_flat,
+                slot_paint_frags if (is_normal_part and n_slots > 0) else [],
+            )
+        else:
+            verts_list = verts_flat.reshape(n_tris, 3).tolist()
+            mat_list = mat_flat.tolist()
+            tparts = ["<triangles>"]
+            tappend = tparts.append
 
-        for tri_idx in range(n_tris):
-            v = verts_list[tri_idx]
-            base_tri = f'<triangle v1="{v[0]}" v2="{v[1]}" v3="{v[2]}"'
+            for tri_idx in range(n_tris):
+                v = verts_list[tri_idx]
+                base_tri = f'<triangle v1="{v[0]}" v2="{v[1]}" v3="{v[2]}"'
 
-            # Check for segmentation string first (PAINT mode with UV texture)
-            if has_segmentation:
-                seg_str = segmentation_strings.get(tri_idx)
-                if seg_str:
-                    seam_part = ""
-                    sup_part = ""
-                    if has_seam:
-                        seam = seam_strings.get(tri_idx)
-                        if seam:
-                            seam_part = f' paint_seam="{seam}"'
-                    if has_support:
-                        sup = support_strings.get(tri_idx)
-                        if sup:
-                            sup_part = f' paint_supports="{sup}"'
-                    tappend(f'{base_tri} paint_color="{seg_str}"{seam_part}{sup_part}/>')
-                    continue
+                # Check for segmentation string first (PAINT mode with UV texture)
+                if has_segmentation:
+                    seg_str = segmentation_strings.get(tri_idx)
+                    if seg_str:
+                        seam_part = ""
+                        sup_part = ""
+                        if has_seam:
+                            seam = seam_strings.get(tri_idx)
+                            if seam:
+                                seam_part = f' paint_seam="{seam}"'
+                        if has_support:
+                            sup = support_strings.get(tri_idx)
+                            if sup:
+                                sup_part = f' paint_supports="{sup}"'
+                        tappend(f'{base_tri} paint_color="{seg_str}"{seam_part}{sup_part}/>')
+                        continue
 
-            # Fallback: pre-computed slot paint fragment
-            paint_frag = ""
-            if is_normal_part and n_slots > 0:
-                slot_idx = mat_list[tri_idx]
-                if slot_idx < n_slots:
-                    paint_frag = slot_paint_frags[slot_idx]
+                # Fallback: pre-computed slot paint fragment
+                paint_frag = ""
+                if is_normal_part and n_slots > 0:
+                    slot_idx = mat_list[tri_idx]
+                    if slot_idx < n_slots:
+                        paint_frag = slot_paint_frags[slot_idx]
 
-            seam_part = ""
-            sup_part = ""
-            if has_seam:
-                seam = seam_strings.get(tri_idx)
-                if seam:
-                    seam_part = f' paint_seam="{seam}"'
-            if has_support:
-                sup = support_strings.get(tri_idx)
-                if sup:
-                    sup_part = f' paint_supports="{sup}"'
+                seam_part = ""
+                sup_part = ""
+                if has_seam:
+                    seam = seam_strings.get(tri_idx)
+                    if seam:
+                        seam_part = f' paint_seam="{seam}"'
+                if has_support:
+                    sup = support_strings.get(tri_idx)
+                    if sup:
+                        sup_part = f' paint_supports="{sup}"'
 
-            tappend(f'{base_tri}{paint_frag}{seam_part}{sup_part}/>')
+                tappend(f'{base_tri}{paint_frag}{seam_part}{sup_part}/>')
 
-        tparts.append("</triangles>")
-        _raw_geometry_cache.setdefault(id(mesh_elem), {})["triangles"] = "".join(tparts)
+            tparts.append("</triangles>")
+            raw_triangles = "".join(tparts)
+        _raw_geometry_cache.setdefault(id(mesh_elem), {})["triangles"] = raw_triangles
         _t_tri2 = time.perf_counter()
         timing_debug(f"orca write_triangles loop ({n_tris} tris)", (_t_tri2 - _t_tri1) * 1000)
         timing_debug(f"orca write_object_model geometry TOTAL", (_t_tri2 - _t_vert0) * 1000)
