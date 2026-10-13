@@ -469,58 +469,91 @@ class ThreeMFPreferences(bpy.types.AddonPreferences):
         elif self.pref_tab == "ADVANCED":
             self._draw_advanced(layout)
 
+    # The Export and Import tabs mirror the layout of the export and import
+    # dialogs (same grouping, labels and widgets), so each default is easy to
+    # find next to the option it sets.
+
     def _draw_export(self, layout):
-        col = layout.column(align=True)
-        col.label(text="Material Export Mode:", icon="COLORSET_01_VEC")
-        col.prop(self, "default_multi_material_export", text="")
-        if self.default_multi_material_export in ("PAINT", "AUTO"):
-            col.prop(self, "default_mmu_slicer_format")
-            col.prop(self, "default_subdivision_depth")
-        col.separator()
-        col.prop(self, "default_use_selection", icon="RESTRICT_SELECT_OFF")
-        col.prop(self, "default_export_hidden", icon="HIDE_OFF")
-        col.prop(self, "default_include_disabled", icon="RESTRICT_RENDER_OFF")
-        col.prop(self, "default_apply_modifiers", icon="MODIFIER")
-        col.prop(self, "default_use_components", icon="LINKED")
-        col.prop(self, "default_flatten_hierarchy", icon="EMPTY_AXIS")
-        col.separator()
-        col.prop(self, "default_export_location")
-        col.prop(self, "default_coordinate_precision")
-        col.prop(self, "default_global_scale")
-        col.separator()
-        col.prop(self, "default_compression_level")
-        col.prop(self, "default_strip_identifying_data")
-        col.separator()
-        col.label(text="Thumbnail:", icon="IMAGE_DATA")
-        col.prop(self, "default_thumbnail_mode")
-        if self.default_thumbnail_mode == "AUTO":
-            col.prop(self, "default_thumbnail_resolution")
+        """Mirror the layout of ``Export3MF.draw()``."""
+        layout.use_property_split = True
+        layout.use_property_decorate = False
+
+        # --- Multi-Color Printing ---
+        header, body = layout.panel("THREEMF_prefs_export_multi_color", default_closed=False)
+        header.label(text="Multi-Color Printing", icon="COLORSET_01_VEC")
+        if body:
+            body.use_property_split = False
+            body.prop(self, "default_multi_material_export")
+            if self.default_multi_material_export in ("PAINT", "AUTO"):
+                body.prop(self, "default_mmu_slicer_format", text="Slicer")
+                body.prop(self, "default_subdivision_depth")
+
+        # --- Geometry ---
+        header, body = layout.panel("THREEMF_prefs_export_geometry", default_closed=False)
+        header.label(text="Geometry", icon="MESH_DATA")
+        if body:
+            col = body.column(align=True)
+            col.prop(self, "default_use_selection")
+            col.prop(self, "default_export_hidden", text="Include Hidden")
+            col.prop(self, "default_include_disabled", text="Include Disabled")
+            col.prop(self, "default_apply_modifiers")
+            col.prop(self, "default_use_components")
+            col.prop(self, "default_flatten_hierarchy")
+            col.separator()
+            col.prop(self, "default_export_location", text="Location")
+            col.prop(self, "default_global_scale", text="Scale")
+            col.prop(self, "default_coordinate_precision", text="Precision")
+
+        # --- Archive ---
+        header, body = layout.panel("THREEMF_prefs_export_archive", default_closed=False)
+        header.label(text="Archive", icon="PACKAGE")
+        if body:
+            body.prop(self, "default_compression_level", text="Compression")
+            body.prop(self, "default_strip_identifying_data")
+            body.separator()
+            thumb = body.column()
+            thumb.active = not self.default_strip_identifying_data
+            thumb.label(text="Thumbnail", icon="IMAGE_DATA")
+            thumb.use_property_split = False
+            thumb.row().prop(self, "default_thumbnail_mode", expand=True)
+            if self.default_thumbnail_mode == "AUTO":
+                thumb.use_property_split = True
+                thumb.prop(self, "default_thumbnail_resolution", text="Resolution")
 
     def _draw_import(self, layout):
-        col = layout.column(align=True)
-        col.label(text="Scene Unit:", icon="DRIVER_DISTANCE")
-        col.prop(self, "default_scene_unit", text="")
-        col.prop(self, "default_import_global_scale")
-        col.separator()
-        col.prop(self, "default_import_materials", icon="MATERIAL")
-        col.prop(self, "default_reuse_materials", icon="LINKED")
-        col.separator()
-        col.label(text="Placement:", icon="OBJECT_ORIGIN")
-        col.prop(self, "default_import_location")
+        """Mirror the layout of ``Import3MF.draw()``."""
+        layout.prop(self, "default_scene_unit")
+        layout.prop(self, "default_import_global_scale", text="Scale Multiplier")
+        layout.separator()
+
+        box = layout.box()
+        box.label(text="Import Options:", icon="IMPORT")
+        box.prop(self, "default_import_materials", text="Material Mode")
+        box.prop(self, "default_reuse_materials")
+
+        layout.separator()
+        placement_box = layout.box()
+        placement_box.label(text="Placement:", icon="OBJECT_ORIGIN")
+        placement_box.prop(self, "default_import_location", text="Location")
         if self.default_import_location == "GRID":
-            col.prop(self, "default_grid_spacing")
-        col.prop(self, "default_origin_to_geometry")
-        col.separator()
-        col.label(text="Normals:", icon="MOD_SMOOTH")
-        col.prop(self, "default_shading")
+            placement_box.prop(self, "default_grid_spacing")
+        placement_box.prop(self, "default_origin_to_geometry")
+
+        layout.separator()
+        smooth_box = layout.box()
+        smooth_box.label(text="Normals:", icon="MOD_SMOOTH")
+        smooth_box.prop(self, "default_shading")
         if self.default_shading == "AUTO":
-            col.prop(self, "default_auto_smooth_angle")
+            smooth_box.prop(self, "default_auto_smooth_angle")
+
+        # Only relevant for MMU Paint, as in the import dialog.
         if self.default_import_materials == "PAINT":
-            col.separator()
-            col.label(text="MMU Paint:", icon="BRUSH_DATA")
-            col.prop(self, "default_paint_uv_method")
-            col.prop(self, "default_paint_texture_size")
-            col.prop(self, "default_shared_paint_texture")
+            layout.separator()
+            adv_box = layout.box()
+            adv_box.label(text="Advanced Settings", icon="BRUSH_DATA")
+            adv_box.prop(self, "default_paint_uv_method")
+            adv_box.prop(self, "default_paint_texture_size")
+            adv_box.prop(self, "default_shared_paint_texture")
 
     def _draw_advanced(self, layout):
         from .slicer_profiles import list_profiles
