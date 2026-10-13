@@ -455,6 +455,15 @@ def _apply_auto_smooth(
     bpy.context.view_layer.objects.active = blender_object
     blender_object.select_set(True)
     try:
-        bpy.ops.object.shade_auto_smooth(angle=angle)
+        # Limit the operator to this object.  Objects imported earlier stay
+        # selected, and the operator acts on every selected object, which
+        # made importing N objects cost O(N²).
+        with bpy.context.temp_override(
+            active_object=blender_object,
+            object=blender_object,
+            selected_objects=[blender_object],
+            selected_editable_objects=[blender_object],
+        ):
+            bpy.ops.object.shade_auto_smooth(angle=angle)
     except Exception:
         warn(f"Failed to apply Smooth by Angle to {blender_object.name}")
