@@ -232,10 +232,16 @@ class ThreeMFPreferences(bpy.types.AddonPreferences):
         default="KEEP",
     )
 
-    default_auto_smooth: bpy.props.BoolProperty(
-        name="Smooth by Angle",
-        description="Apply Smooth by Angle modifier to imported objects by default",
-        default=False,
+    default_shading: bpy.props.EnumProperty(
+        name="Shading",
+        description="Default shading for imported objects",
+        items=[
+            ("SMOOTH", "Smooth", "Smooth shading on all faces"),
+            ("FLAT", "Flat", "Flat shading on all faces, showing every facet"),
+            ("AUTO", "Smooth by Angle",
+             "Add a Smooth by Angle modifier: smooth, except for edges sharper than the angle"),
+        ],
+        default="SMOOTH",
     )
 
     default_auto_smooth_angle: bpy.props.FloatProperty(
@@ -428,8 +434,8 @@ class ThreeMFPreferences(bpy.types.AddonPreferences):
         col.prop(self, "default_origin_to_geometry")
         col.separator()
         col.label(text="Normals:", icon="MOD_SMOOTH")
-        col.prop(self, "default_auto_smooth")
-        if self.default_auto_smooth:
+        col.prop(self, "default_shading")
+        if self.default_shading == "AUTO":
             col.prop(self, "default_auto_smooth_angle")
         if self.default_import_materials == "PAINT":
             col.separator()

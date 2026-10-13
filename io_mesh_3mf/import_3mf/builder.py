@@ -249,9 +249,11 @@ def build_object(
         ):
             blender_object.hide_render = True
 
-        # Apply Smooth by Angle modifier if requested
-        if ctx.options.auto_smooth:
+        # Apply the requested shading. New meshes are smooth-shaded already.
+        if ctx.options.shading == "AUTO" or ctx.options.auto_smooth:
             _apply_auto_smooth(blender_object, ctx.options.auto_smooth_angle)
+        elif ctx.options.shading == "FLAT":
+            blender_object.data.shade_flat()
     else:
         # No mesh: either pass through parent, or create an Empty for
         # multi-part assemblies (Orca modifier groups) so the hierarchy
