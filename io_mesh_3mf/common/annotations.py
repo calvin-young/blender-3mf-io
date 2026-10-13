@@ -205,6 +205,7 @@ class Annotations:
                 current_id += 1
 
             document = xml.etree.ElementTree.ElementTree(root)
+            xml.etree.ElementTree.indent(document)
             rels_file = f"{source}{RELS_FOLDER}/.rels"
             with archive.open(rels_file, "w") as f:
                 document.write(
@@ -288,6 +289,7 @@ class Annotations:
             )
 
         document = xml.etree.ElementTree.ElementTree(root)
+        xml.etree.ElementTree.indent(document)
         with archive.open(CONTENT_TYPES_LOCATION, "w") as f:
             document.write(
                 f,

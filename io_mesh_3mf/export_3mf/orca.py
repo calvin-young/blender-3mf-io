@@ -917,6 +917,7 @@ class OrcaExporter(BaseExporter):
 
         # Write to archive
         document = xml.etree.ElementTree.ElementTree(root)
+        xml.etree.ElementTree.indent(document)
         buffer = io.BytesIO()
         document.write(buffer, xml_declaration=True, encoding="UTF-8")
         xml_content = buffer.getvalue().decode("UTF-8")
@@ -946,6 +947,7 @@ class OrcaExporter(BaseExporter):
             )
 
         document = xml.etree.ElementTree.ElementTree(root)
+        xml.etree.ElementTree.indent(document)
         buffer = io.BytesIO()
         document.write(buffer, xml_declaration=True, encoding="UTF-8")
         xml_content = buffer.getvalue().decode("UTF-8")
@@ -1500,6 +1502,7 @@ class OrcaExporter(BaseExporter):
             )
 
         tree = xml.etree.ElementTree.ElementTree(root)
+        xml.etree.ElementTree.indent(tree)
 
         output = io.BytesIO()
         tree.write(output, encoding="utf-8", xml_declaration=True)

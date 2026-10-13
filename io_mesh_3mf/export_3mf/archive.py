@@ -128,6 +128,7 @@ def write_core_properties(archive: zipfile.ZipFile) -> None:
 
     # Write the Core Properties file
     document = xml.etree.ElementTree.ElementTree(root)
+    xml.etree.ElementTree.indent(document)
     try:
         with archive.open(CORE_PROPERTIES_LOCATION, "w") as f:
             document.write(f, xml_declaration=True, encoding="UTF-8")

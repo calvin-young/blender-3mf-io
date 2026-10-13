@@ -411,6 +411,7 @@ def write_texture_relationships(archive: zipfile.ZipFile, image_to_path: Dict[st
     # XML like annotations.write_rels() does, avoiding ns0: prefixes.
     rels_path = "3D/_rels/3dmodel.model.rels"
     tree = xml.etree.ElementTree.ElementTree(relationships_element)
+    xml.etree.ElementTree.indent(tree)
     with archive.open(rels_path, "w") as f:
         tree.write(
             f,

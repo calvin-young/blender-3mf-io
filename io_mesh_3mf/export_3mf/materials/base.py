@@ -537,6 +537,7 @@ def write_prusa_filament_colors(archive, vertex_colors: Dict[str, int]) -> None:
 
         if len(sorted_colors) > 0:
             tree = xml.etree.ElementTree.ElementTree(root)
+            xml.etree.ElementTree.indent(tree)
             with archive.open("Metadata/blender_filament_colors.xml", "w") as f:
                 tree.write(f, xml_declaration=True, encoding="UTF-8")
 
