@@ -885,7 +885,7 @@ class OrcaExporter(BaseExporter):
                 f"0.000000000 0.000000000 1.000000000 "
                 f"{bed_x:.9f} {bed_y:.9f} 0.000000000"
             )
-            item_uuid = f"0000000{item_idx + 2}-b1ec-4553-aec9-835e5b724bb4"
+            item_uuid = f"{item_idx + 2:08x}-b1ec-4553-aec9-835e5b724bb4"
             xml.etree.ElementTree.SubElement(
                 build,
                 "item",
@@ -900,7 +900,7 @@ class OrcaExporter(BaseExporter):
 
         # Build items for ungrouped objects
         for obj in ungrouped:
-            item_uuid = f"0000000{item_idx + 2}-b1ec-4553-aec9-835e5b724bb4"
+            item_uuid = f"{item_idx + 2:08x}-b1ec-4553-aec9-835e5b724bb4"
             transform_str = format_transformation(obj["transformation"])
 
             xml.etree.ElementTree.SubElement(

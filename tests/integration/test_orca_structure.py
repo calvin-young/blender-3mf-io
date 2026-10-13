@@ -76,6 +76,30 @@ class OrcaExportStructureTests(Blender3mfTestCase):
                 len(components), 0, "Main model should contain component refs"
             )
 
+    def test_orca_uuids_are_well_formed(self):
+        """Every p:UUID is a well-formed UUID, even with 10+ build items."""
+        import re
+
+        uuid_re = re.compile(
+            r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        )
+        self._export_orca_cube(count=12)
+        with zipfile.ZipFile(str(self.temp_file), "r") as archive:
+            for name in archive.namelist():
+                if not name.endswith(".model"):
+                    continue
+                root = ET.fromstring(archive.read(name))
+                uuids = [
+                    value
+                    for element in root.iter()
+                    for key, value in element.attrib.items()
+                    if key.endswith("UUID")
+                ]
+                for value in uuids:
+                    self.assertRegex(value, uuid_re, f"Malformed UUID in {name}")
+                if name == "3D/3dmodel.model":
+                    self.assertEqual(len(uuids), len(set(uuids)), "Duplicate UUIDs")
+
     def test_orca_relationships_file_exists(self):
         """3D/_rels/3dmodel.model.rels is present."""
         self._export_orca_cube(count=1)
