@@ -22,7 +22,6 @@ Functions for writing mesh geometry to the 3MF XML model:
 - check_non_manifold_geometry: Detect non-manifold issues using BMesh
 """
 
-import bmesh
 import numpy as np
 import time
 import xml.etree.ElementTree
@@ -126,11 +125,14 @@ def check_non_manifold_geometry(
     blender_objects: List[bpy.types.Object], use_mesh_modifiers: bool
 ) -> List[str]:
     """
-    Check mesh objects for non-manifold geometry using BMesh.
+    Check mesh objects for non-manifold geometry.
 
     Non-manifold geometry can cause problems in slicers and is generally
-    not suitable for 3D printing. Uses BMesh's C-optimized is_manifold
-    property for fast detection.
+    not suitable for 3D printing.  An object is reported when any edge is not
+    shared by exactly two faces (holes, wire edges, edges shared by 3+ faces)
+    or any vertex is not used by a face.  Face counts are computed with numpy
+    from the mesh arrays, instead of visiting every BMesh edge and vertex in
+    Python, so this stays fast for large exports.
 
     Stops checking after finding the first non-manifold object for performance.
 
@@ -156,24 +158,18 @@ def check_non_manifold_geometry(
         if mesh is None:
             continue
 
-        bm = bmesh.new()
-        bm.from_mesh(mesh)
+        try:
+            n_loops = len(mesh.loops)
+            loop_edges = np.empty(n_loops, dtype=np.int32)
+            mesh.loops.foreach_get("edge_index", loop_edges)
+            loop_verts = np.empty(n_loops, dtype=np.int32)
+            mesh.loops.foreach_get("vertex_index", loop_verts)
 
-        has_non_manifold = False
-
-        for edge in bm.edges:
-            if not edge.is_manifold:
-                has_non_manifold = True
-                break
-
-        if not has_non_manifold:
-            for vert in bm.verts:
-                if not vert.is_manifold:
-                    has_non_manifold = True
-                    break
-
-        bm.free()
-        eval_object.to_mesh_clear()
+            faces_per_edge = np.bincount(loop_edges, minlength=len(mesh.edges))
+            faces_per_vert = np.bincount(loop_verts, minlength=len(mesh.vertices))
+            has_non_manifold = bool((faces_per_edge != 2).any() or (faces_per_vert == 0).any())
+        finally:
+            eval_object.to_mesh_clear()
 
         if has_non_manifold:
             return [blender_object.name]

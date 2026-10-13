@@ -137,6 +137,34 @@ class TestCheckNonManifoldGeometry(Blender3mfTestCase):
         result = check_non_manifold_geometry(objects, use_mesh_modifiers=False)
         self.assertGreater(len(result), 0)
 
+    def _object_from_pydata(self, verts, edges, faces):
+        mesh = bpy.data.meshes.new("test_mesh")
+        mesh.from_pydata(verts, edges, faces)
+        obj = bpy.data.objects.new("test_obj", mesh)
+        bpy.context.collection.objects.link(obj)
+        return obj
+
+    def test_loose_vertex_detected(self):
+        """A closed mesh plus a vertex used by no face is non-manifold."""
+        verts = [(0, 0, 0), (1, 0, 0), (0, 1, 0), (0, 0, 1), (5, 5, 5)]
+        faces = [(0, 2, 1), (0, 1, 3), (1, 2, 3), (0, 3, 2)]
+        obj = self._object_from_pydata(verts, [], faces)
+        self.assertEqual(check_non_manifold_geometry([obj], use_mesh_modifiers=False), [obj.name])
+
+    def test_closed_tetrahedron_is_manifold(self):
+        """A closed tetrahedron is manifold."""
+        verts = [(0, 0, 0), (1, 0, 0), (0, 1, 0), (0, 0, 1)]
+        faces = [(0, 2, 1), (0, 1, 3), (1, 2, 3), (0, 3, 2)]
+        obj = self._object_from_pydata(verts, [], faces)
+        self.assertEqual(check_non_manifold_geometry([obj], use_mesh_modifiers=False), [])
+
+    def test_edge_shared_by_three_faces_detected(self):
+        """An edge shared by three faces is non-manifold."""
+        verts = [(0, 0, 0), (1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1)]
+        faces = [(0, 1, 2), (0, 1, 3), (0, 1, 4)]
+        obj = self._object_from_pydata(verts, [], faces)
+        self.assertEqual(check_non_manifold_geometry([obj], use_mesh_modifiers=False), [obj.name])
+
 
 if __name__ == "__main__":
     unittest.main()
