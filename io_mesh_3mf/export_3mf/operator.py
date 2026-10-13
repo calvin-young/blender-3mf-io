@@ -226,6 +226,7 @@ class EXPORT_OT_threemf_preset(AddPresetBase, bpy.types.Operator):
         "op.compression_level",
         "op.use_orca_format",
         "op.use_components",
+        "op.flatten_hierarchy",
         "op.mmu_slicer_format",
         "op.slicer_profile",
         "op.subdivision_depth",
@@ -501,6 +502,11 @@ class Export3MF(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
             self.subdivision_depth = prefs.preferences.default_subdivision_depth
             self.thumbnail_mode = prefs.preferences.default_thumbnail_mode
             self.thumbnail_resolution = prefs.preferences.default_thumbnail_resolution
+            self.use_selection = prefs.preferences.default_use_selection
+            self.include_disabled = prefs.preferences.default_include_disabled
+            self.use_components = prefs.preferences.default_use_components
+            self.flatten_hierarchy = prefs.preferences.default_flatten_hierarchy
+            self.mmu_slicer_format = prefs.preferences.default_mmu_slicer_format
         self.report({"INFO"}, "Exporting, please wait...")
         return super().invoke(context, event)
 
