@@ -22,6 +22,7 @@ Responsibilities:
 """
 
 import os.path
+import time
 import xml.etree.ElementTree
 from typing import Optional, Set
 
@@ -102,6 +103,9 @@ class Import3MF(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
     # ----- Operator properties (user-facing) --------------------------------
 
     filter_glob: bpy.props.StringProperty(default="*.3mf", options={"HIDDEN"})
+    # Set by invoke(): imports started from the UI run as a modal operator so
+    # the viewport stays responsive.  Script calls (execute only) stay blocking.
+    run_in_background: bpy.props.BoolProperty(default=False, options={"HIDDEN", "SKIP_SAVE"})
     files: bpy.props.CollectionProperty(name="File Path", type=bpy.types.OperatorFileListElement)
     directory: bpy.props.StringProperty(subtype="DIR_PATH")
     scene_unit: bpy.props.EnumProperty(
@@ -308,6 +312,8 @@ class Import3MF(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
             if hasattr(prefs.preferences, "default_shared_paint_texture"):
                 self.shared_paint_texture = prefs.preferences.default_shared_paint_texture
 
+        self.run_in_background = True
+
         # If files are already provided (drag-drop), show popup instead of file browser
         if getattr(self, "directory", "") and getattr(self, "files", None):
             return self.invoke_popup(context)
@@ -402,14 +408,88 @@ class Import3MF(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
 
     def execute(self, context: bpy.types.Context) -> Set[str]:
         """Import one or more 3MF files."""
+        if self.run_in_background and context.window is not None:
+            return self._start_background_import(context)
         self._progress_begin(context, "Importing 3MF...")
         try:
-            return self._execute_inner(context)
+            for _ in self._iter_import(context):
+                pass
+            return self._import_result
         finally:
             self._progress_end()
 
-    def _execute_inner(self, context: bpy.types.Context) -> Set[str]:
-        """Core import logic — separated for clean progress begin/end."""
+    # ----- Background (modal) import ----------------------------------------
+
+    # Seconds of import work per timer tick before handing control back to
+    # Blender, which then redraws the viewport (showing progress and the
+    # objects built so far) and handles navigation.
+    _STEP_BUDGET = 0.15
+
+    # Events passed through while importing, so the view can be navigated.
+    # Everything else is blocked so the scene can't change mid-import.
+    _NAVIGATION_EVENTS = {
+        "MOUSEMOVE", "INBETWEEN_MOUSEMOVE", "MIDDLEMOUSE",
+        "WHEELUPMOUSE", "WHEELDOWNMOUSE", "WHEELINMOUSE", "WHEELOUTMOUSE",
+        "TRACKPADPAN", "TRACKPADZOOM", "MOUSEROTATE", "MOUSESMARTZOOM",
+    }
+
+    def _start_background_import(self, context: bpy.types.Context) -> Set[str]:
+        """Start the import as a modal operator that works in small steps."""
+        self._progress_begin(context, "Importing 3MF... (Esc to cancel)")
+        if getattr(self, "_progress_window", None) is not None:
+            # The viewport redraws between steps, so no forced redraws needed.
+            self._progress_window.set_synchronous_redraw(False)
+        self._import_steps = self._iter_import(context)
+        wm = context.window_manager
+        self._timer = wm.event_timer_add(0.001, window=context.window)
+        wm.modal_handler_add(self)
+        return {"RUNNING_MODAL"}
+
+    def _end_background_import(self, context: bpy.types.Context) -> None:
+        context.window_manager.event_timer_remove(self._timer)
+        self._timer = None
+        self._progress_end()
+
+    def modal(self, context: bpy.types.Context, event: bpy.types.Event) -> Set[str]:
+        """Run import steps on each timer tick; allow view navigation in between."""
+        if event.type == "ESC" and event.value == "PRESS":
+            self._import_steps.close()
+            self._end_background_import(context)
+            ctx = getattr(self, "_import_ctx", None)
+            count = ctx.num_loaded if ctx is not None else 0
+            self.safe_report({"WARNING"}, f"Import cancelled after {count} objects")
+            # FINISHED (not CANCELLED) so the partial import gets an undo step.
+            return {"FINISHED"}
+
+        if event.type == "TIMER":
+            deadline = time.perf_counter() + self._STEP_BUDGET
+            try:
+                while time.perf_counter() < deadline:
+                    next(self._import_steps)
+            except StopIteration:
+                self._end_background_import(context)
+                return self._import_result
+            except Exception:
+                self._end_background_import(context)
+                raise
+            return {"RUNNING_MODAL"}
+
+        if (
+            event.type in self._NAVIGATION_EVENTS
+            or event.type.startswith("NUMPAD_")
+            or event.type.startswith("NDOF_")
+        ):
+            return {"PASS_THROUGH"}
+        return {"RUNNING_MODAL"}
+
+    # ----- Import steps -----------------------------------------------------
+
+    def _iter_import(self, context: bpy.types.Context):
+        """Core import logic, as a generator that yields between small steps.
+
+        Sets ``self._import_result`` when done.  ``execute()`` runs it to the
+        end in one go; a background import runs a few steps per timer tick.
+        """
         # Build ImportContext from operator properties.
         options = ImportOptions(
             global_scale=self.global_scale,
@@ -425,6 +505,7 @@ class Import3MF(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
             shared_paint_texture=self.shared_paint_texture,
         )
         ctx = ImportContext(options=options, operator=self)
+        self._import_ctx = ctx
 
         # Scene-level metadata (combine with existing scene metadata).
         scene_metadata = Metadata()
@@ -457,7 +538,7 @@ class Import3MF(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
             if pw is not None:
                 file_start = file_idx / num_paths * 0.95
                 pw.update(file_start, 0, f"File {file_idx + 1}/{num_paths}: {basename}")
-            self._import_single_archive(ctx, path, context, scene_metadata, annotations)
+            yield from self._import_single_archive(ctx, path, context, scene_metadata, annotations)
             # Mark this file complete in the browser card.
             if pw is not None:
                 file_end = (file_idx + 1) / num_paths * 0.95
@@ -541,7 +622,7 @@ class Import3MF(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
         # Show paint popup if needed.
         self._show_paint_popup(ctx)
 
-        return {"FINISHED"}
+        self._import_result = {"FINISHED"}
 
     # ----- Per-archive pipeline ---------------------------------------------
 
@@ -558,6 +639,7 @@ class Import3MF(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
         _t0_archive = _time.perf_counter()
 
         files_by_content_type = archive_mod.read_archive(ctx, path)
+        yield
 
         # File metadata.
         for rels_file in files_by_content_type.get(RELS_MIMETYPE, []):
@@ -579,8 +661,9 @@ class Import3MF(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
             if document is None:
                 continue
             root = document.getroot()
+            yield
 
-            self._process_model_root(ctx, root, path, context, scene_metadata)
+            yield from self._process_model_root(ctx, root, path, context, scene_metadata)
 
         debug(f"[TIMING] Total archive import: {_time.perf_counter() - _t0_archive:.3f}s  ({os.path.basename(path)})")
 
@@ -675,14 +758,14 @@ class Import3MF(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
 
         # Objects.
         _t = _time.perf_counter()
-        geometry_mod.read_objects(ctx, root)
+        yield from geometry_mod.iter_read_objects(ctx, root)
         debug(f"[TIMING]   read_objects:     {_time.perf_counter() - _t:.3f}s  "
               f"({len(ctx.resource_objects)} objects)")
 
         # Build items.
         self._progress_update(60, "Building objects...")
         _t = _time.perf_counter()
-        builder_mod.build_items(
+        yield from builder_mod.iter_build_items(
             ctx, root, scale_unit,
             progress_callback=lambda v, m: self._progress_update(v, m),
         )

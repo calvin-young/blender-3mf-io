@@ -47,6 +47,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "build_items",
+    "iter_build_items",
     "build_object",
 ]
 
@@ -67,6 +68,20 @@ def build_items(
     :param root: XML root of the model file.
     :param scale_unit: Scale factor converting 3MF units to Blender units.
     :param progress_callback: Optional ``(value, message)`` callable for progress.
+    """
+    for _ in iter_build_items(ctx, root, scale_unit, progress_callback):
+        pass
+
+
+def iter_build_items(
+    ctx: "ImportContext",
+    root,
+    scale_unit: float,
+    progress_callback=None,
+):
+    """Generator version of :func:`build_items` that yields after each item.
+
+    Lets the import operator hand control back to Blender between objects.
     """
     build_items_list = list(root.iterfind("./3mf:build/3mf:item", MODEL_NAMESPACES))
     total_items = len(build_items_list)
@@ -107,6 +122,7 @@ def build_items(
         debug(
             f"[TIMING]     build obj {objectid}: {tris}t  {_obj_elapsed:.3f}s"
         )
+        yield
 
     debug(f"[TIMING]   build_items total: {_time.perf_counter() - _t0:.3f}s")
 
