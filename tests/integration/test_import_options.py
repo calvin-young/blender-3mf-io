@@ -281,5 +281,19 @@ class ImportHiddenObjectTests(Blender3mfTestCase):
         self.assertGreater(len(bpy.data.objects), 0)
 
 
+class ImportBackgroundModeTests(Blender3mfTestCase):
+    """run_in_background falls back to a blocking import without a window."""
+
+    def test_background_flag_without_window_imports_synchronously(self):
+        bpy.ops.mesh.primitive_cube_add(size=2.0)
+        bpy.ops.export_mesh.threemf(filepath=str(self.temp_file))
+        self.clean_scene()
+        result = bpy.ops.import_mesh.threemf(
+            filepath=str(self.temp_file), run_in_background=True
+        )
+        self.assertEqual(result, {"FINISHED"})
+        self.assertEqual(len([o for o in bpy.data.objects if o.type == "MESH"]), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

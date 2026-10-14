@@ -629,6 +629,21 @@ def read_objects(
     :param ctx: The import context.
     :param root: The root node of a ``3dmodel.model`` XML file.
     """
+    for _ in iter_read_objects(ctx, root):
+        pass
+
+
+def iter_read_objects(
+    ctx: "ImportContext",
+    root: xml.etree.ElementTree.Element,
+):
+    """Generator version of :func:`read_objects` that yields after each object.
+
+    Lets the import operator hand control back to Blender between objects.
+
+    :param ctx: The import context.
+    :param root: The root node of a ``3dmodel.model`` XML file.
+    """
     from ..common.xml import read_metadata as _read_metadata
     from .archive import load_external_model
     from .triangle_sets import read_triangle_sets
@@ -772,6 +787,7 @@ def read_objects(
             support_strings=support_strings if support_strings else None,
             default_extruder=default_extruder,
         )
+        yield
 
     debug(
         f"[TIMING]   read_objects total: {_time.perf_counter() - _t0_all:.3f}s  "

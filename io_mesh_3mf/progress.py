@@ -416,6 +416,10 @@ class ViewportProgressBar:
         self._active: bool = False
         self._start_time: float = 0.0
         self._phases: List[str] = []
+        # Force an immediate repaint on every update.  Needed while a blocking
+        # operator runs; a modal operator can turn it off because Blender
+        # redraws between its steps anyway.
+        self.synchronous_redraw: bool = True
 
     def __enter__(self) -> "ViewportProgressBar":
         return self
@@ -536,7 +540,8 @@ class ViewportProgressBar:
                 for area in window.screen.areas:
                     if area.type == "VIEW_3D":
                         area.tag_redraw()
-            bpy.ops.wm.redraw_timer(type="DRAW_WIN_SWAP", iterations=1)
+            if self.synchronous_redraw:
+                bpy.ops.wm.redraw_timer(type="DRAW_WIN_SWAP", iterations=1)
         except Exception:
             pass
 
@@ -615,6 +620,12 @@ class ProgressReporter:
         """Finish and tear down the indicator (no-op for mode ``"NONE"``)."""
         if self._impl is not None:
             self._impl.finish()  # type: ignore[union-attr]
+
+    def set_synchronous_redraw(self, enabled: bool) -> None:
+        """Choose whether updates force an immediate repaint (default) or only
+        tag the viewports for redraw, e.g. from a modal operator."""
+        if self._impl is not None:
+            self._impl.synchronous_redraw = enabled
 
     def is_cancel_requested(self) -> bool:
         """Return ``True`` only when browser card Cancel was clicked."""
