@@ -115,6 +115,59 @@ class ExportBasicTests(Blender3mfTestCase):
         self.assertTrue(self.temp_file.exists())
 
 
+class ExportLocationTests(Blender3mfTestCase):
+    """Tests for the export_location option (CENTER / KEEP)."""
+
+    def _build_item_translation(self):
+        """Return the (x, y, z) translation of the single build item, in mm."""
+        with zipfile.ZipFile(self.temp_file, "r") as archive:
+            root = ET.fromstring(archive.read("3D/3dmodel.model"))
+        items = [el for el in root.iter() if el.tag.endswith("}item")]
+        self.assertEqual(len(items), 1)
+        transform = items[0].get("transform")
+        if transform is None:
+            return (0.0, 0.0, 0.0)
+        return tuple(float(v) for v in transform.split()[9:12])
+
+    def _add_offset_cube(self):
+        # 2 m cube centered at (5, 10, 15) m: lowest point at Z = 14 m.
+        bpy.ops.mesh.primitive_cube_add(location=(5, 10, 15))
+
+    def test_center_is_default(self):
+        """Default export centers the objects in XY and drops them to Z=0."""
+        self._add_offset_cube()
+        result = bpy.ops.export_mesh.threemf(filepath=str(self.temp_file))
+        self.assertIn("FINISHED", result)
+        x, y, z = self._build_item_translation()
+        self.assertAlmostEqual(x, 0.0, places=3)
+        self.assertAlmostEqual(y, 0.0, places=3)
+        self.assertAlmostEqual(z, 1000.0, places=3)
+
+    def test_keep_preserves_scene_position(self):
+        """KEEP writes the object's scene position (converted to mm)."""
+        self._add_offset_cube()
+        result = bpy.ops.export_mesh.threemf(
+            filepath=str(self.temp_file), export_location="KEEP"
+        )
+        self.assertIn("FINISHED", result)
+        x, y, z = self._build_item_translation()
+        self.assertAlmostEqual(x, 5000.0, places=3)
+        self.assertAlmostEqual(y, 10000.0, places=3)
+        self.assertAlmostEqual(z, 15000.0, places=3)
+
+    def test_api_keep_preserves_scene_position(self):
+        """API: export_location='KEEP' writes the object's scene position."""
+        from io_mesh_3mf.api import export_3mf
+
+        self._add_offset_cube()
+        result = export_3mf(str(self.temp_file), export_location="KEEP")
+        self.assertEqual(result.status, "FINISHED")
+        x, y, z = self._build_item_translation()
+        self.assertAlmostEqual(x, 5000.0, places=3)
+        self.assertAlmostEqual(y, 10000.0, places=3)
+        self.assertAlmostEqual(z, 15000.0, places=3)
+
+
 class ExportMaterialTests(Blender3mfTestCase):
     """Material-related export tests."""
 

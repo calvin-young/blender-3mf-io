@@ -22,7 +22,6 @@ Functions for writing mesh geometry to the 3MF XML model:
 - check_non_manifold_geometry: Detect non-manifold issues using BMesh
 """
 
-import bmesh
 import numpy as np
 import time
 import xml.etree.ElementTree
@@ -69,15 +68,71 @@ from .materials import (
 )
 
 
+def format_vertices_xml(coords: np.ndarray, coordinate_precision: int) -> str:
+    """Build the raw ``<vertices>`` XML block for an ``(n, 3)`` coordinate array.
+
+    Formats every coordinate with ``%.{precision}g`` in a single C-level
+    ``str %`` operation over a repeated template, which is ~3x faster than
+    formatting each coordinate and assembling one f-string per vertex.  The
+    output is identical.
+
+    :param coords: Vertex coordinates, shape ``(n, 3)``.
+    :param coordinate_precision: Number of significant figures.
+    :return: ``<vertices>...</vertices>`` with no whitespace between elements.
+    """
+    fmt = f"%.{coordinate_precision}g"
+    template = f'<vertex x="{fmt}" y="{fmt}" z="{fmt}"/>'
+    values = tuple(coords.ravel().tolist())
+    return f"<vertices>{(template * len(coords)) % values}</vertices>"
+
+
+def format_triangles_xml(
+    tri_vertices: np.ndarray,
+    slot_indices: np.ndarray,
+    slot_fragments: List[str],
+) -> str:
+    """Build the raw ``<triangles>`` XML block for triangles with per-slot attributes.
+
+    Each triangle gets the attribute fragment of its material slot (e.g.
+    ``' pid="2" p1="0"'``); slot indices without a fragment get ``""``.  Like
+    :func:`format_vertices_xml` this formats everything in one C-level
+    ``str %`` operation instead of one f-string per triangle.
+
+    :param tri_vertices: Vertex indices, shape ``(n, 3)``.
+    :param slot_indices: Material slot index per triangle, shape ``(n,)``.
+    :param slot_fragments: Attribute fragment per slot (``""`` for none).
+    :return: ``<triangles>...</triangles>`` with no whitespace between elements.
+    """
+    n_tris = len(tri_vertices)
+    # Out-of-range slot indices map to an extra empty fragment.
+    fragments = list(slot_fragments) + [""]
+    slots = np.minimum(slot_indices, len(fragments) - 1)
+    if n_tris == 0 or slots.min() == slots.max():
+        # Common case (one material, or none): bake the fragment into the template.
+        fragment = fragments[int(slots[0])].replace("%", "%%") if n_tris else ""
+        template = f'<triangle v1="%d" v2="%d" v3="%d"{fragment}/>'
+        values = tuple(tri_vertices.ravel().tolist())
+    else:
+        template = '<triangle v1="%d" v2="%d" v3="%d"%s/>'
+        columns = np.empty((n_tris, 4), dtype=object)
+        columns[:, :3] = tri_vertices
+        columns[:, 3] = np.array(fragments, dtype=object)[slots]
+        values = tuple(columns.ravel().tolist())
+    return f"<triangles>{(template * n_tris) % values}</triangles>"
+
+
 def check_non_manifold_geometry(
     blender_objects: List[bpy.types.Object], use_mesh_modifiers: bool
 ) -> List[str]:
     """
-    Check mesh objects for non-manifold geometry using BMesh.
+    Check mesh objects for non-manifold geometry.
 
     Non-manifold geometry can cause problems in slicers and is generally
-    not suitable for 3D printing. Uses BMesh's C-optimized is_manifold
-    property for fast detection.
+    not suitable for 3D printing.  An object is reported when any edge is not
+    shared by exactly two faces (holes, wire edges, edges shared by 3+ faces)
+    or any vertex is not used by a face.  Face counts are computed with numpy
+    from the mesh arrays, instead of visiting every BMesh edge and vertex in
+    Python, so this stays fast for large exports.
 
     Stops checking after finding the first non-manifold object for performance.
 
@@ -103,24 +158,18 @@ def check_non_manifold_geometry(
         if mesh is None:
             continue
 
-        bm = bmesh.new()
-        bm.from_mesh(mesh)
+        try:
+            n_loops = len(mesh.loops)
+            loop_edges = np.empty(n_loops, dtype=np.int32)
+            mesh.loops.foreach_get("edge_index", loop_edges)
+            loop_verts = np.empty(n_loops, dtype=np.int32)
+            mesh.loops.foreach_get("vertex_index", loop_verts)
 
-        has_non_manifold = False
-
-        for edge in bm.edges:
-            if not edge.is_manifold:
-                has_non_manifold = True
-                break
-
-        if not has_non_manifold:
-            for vert in bm.verts:
-                if not vert.is_manifold:
-                    has_non_manifold = True
-                    break
-
-        bm.free()
-        eval_object.to_mesh_clear()
+            faces_per_edge = np.bincount(loop_edges, minlength=len(mesh.edges))
+            faces_per_vert = np.bincount(loop_verts, minlength=len(mesh.vertices))
+            has_non_manifold = bool((faces_per_edge != 2).any() or (faces_per_vert == 0).any())
+        finally:
+            eval_object.to_mesh_clear()
 
         if has_non_manifold:
             return [blender_object.name]
@@ -162,35 +211,21 @@ def write_vertices(
     _t1 = time.perf_counter()
     timing_debug(f"write_vertices foreach_get ({n} verts)", (_t1 - _t0) * 1000)
 
-    # Vectorized float→string using numpy's C-level char operations.
-    # np.char.mod is ~3–5× faster than a Python list-comprehension for large arrays.
-    decimals = coordinate_precision
-    fmt = f"%.{decimals}g"
-    x_strs = np.char.mod(fmt, coords[:, 0]).tolist()
-    y_strs = np.char.mod(fmt, coords[:, 1]).tolist()
-    z_strs = np.char.mod(fmt, coords[:, 2]).tolist()
-
-    _t2 = time.perf_counter()
-    timing_debug(f"write_vertices str format ({n} verts)", (_t2 - _t1) * 1000)
-
     # Build the raw <vertices> XML string directly, bypassing ElementTree's
     # Python-level DOM so the final document.write() doesn't need to walk N nodes.
     # Attribute names are always unqualified — they inherit the default namespace
     # from the enclosing <model xmlns="..."> declaration, which is semantically
     # equivalent to the namespaced form ElementTree would have generated.
-    parts = ["<vertices>"]
-    append = parts.append
-    for i in range(n):
-        append(f'<vertex x="{x_strs[i]}" y="{y_strs[i]}" z="{z_strs[i]}"/>')
-    parts.append("</vertices>")
-
+    #
     # Store in the side-cache so the streaming writer in standard.py can
     # inject it without DOM overhead.  (Element objects have __slots__ and
     # do not allow arbitrary attribute assignment.)
-    _raw_geometry_cache.setdefault(id(mesh_element), {})["vertices"] = "".join(parts)
+    _raw_geometry_cache.setdefault(id(mesh_element), {})["vertices"] = format_vertices_xml(
+        coords, coordinate_precision
+    )
 
     _t3 = time.perf_counter()
-    timing_debug(f"write_vertices build raw XML ({n} verts)", (_t3 - _t2) * 1000)
+    timing_debug(f"write_vertices format + build raw XML ({n} verts)", (_t3 - _t1) * 1000)
     timing_debug(f"write_vertices TOTAL ({n} verts)", (_t3 - _t0) * 1000)
 
 
@@ -266,8 +301,6 @@ def write_triangles(
     # Bulk-extract all triangle vertex indices (flat: n_tris * 3)
     verts_flat = np.empty(n_tris * 3, dtype=np.int32)
     triangles.foreach_get("vertices", verts_flat)
-    # tolist() gives Python ints; map(str, ...) is fastest for batch int→str
-    verts_strs = list(map(str, verts_flat.tolist()))
 
     # Bulk-extract per-triangle material slot indices
     mat_flat = np.empty(n_tris, dtype=np.int32)
@@ -344,6 +377,27 @@ def write_triangles(
             if p1_val is not None:
                 frag += f' p1="{p1_val}"'
             slot_frags[slot_idx] = frag if frag else None
+
+    # --- Fast path: no per-triangle data beyond the material slot ---
+    # Plain geometry and basematerials (the common case) only need each
+    # slot's attribute fragment, so the whole block can be formatted at once.
+    if (
+        not has_segmentation
+        and not is_basematerial_vc
+        and not seam_strings
+        and not support_strings
+        and all(frag is None or isinstance(frag, str) for frag in slot_frags)
+    ):
+        _raw_geometry_cache.setdefault(id(mesh_element), {})["triangles"] = format_triangles_xml(
+            verts_flat.reshape(n_tris, 3), mat_flat, [frag or "" for frag in slot_frags]
+        )
+        _t3 = time.perf_counter()
+        timing_debug(f"write_triangles fast path ({n_tris} tris)", (_t3 - _t2) * 1000)
+        timing_debug(f"write_triangles TOTAL ({n_tris} tris)", (_t3 - _t0) * 1000)
+        return
+
+    # tolist() gives Python ints; map(str, ...) is fastest for batch int→str
+    verts_strs = list(map(str, verts_flat.tolist()))
 
     # --- Build raw <triangles> XML string directly, bypassing ElementTree DOM ---
     # This avoids creating 2M+ Python Element objects and lets the streaming

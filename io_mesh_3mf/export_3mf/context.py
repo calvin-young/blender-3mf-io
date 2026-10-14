@@ -45,6 +45,7 @@ class ExportOptions:
     export_hidden: bool = False
     include_disabled: bool = False
     global_scale: float = 1.0
+    export_location: str = "CENTER"  # "CENTER" | "KEEP"
     use_mesh_modifiers: bool = True
     coordinate_precision: int = 9
     use_orca_format: str = "AUTO"  # "AUTO" | "STANDARD" | "PAINT"

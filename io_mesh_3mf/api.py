@@ -136,10 +136,12 @@ API_CAPABILITIES = frozenset(
         "thumbnail",  # Thumbnail generation (export)
         "use_components",  # Component instancing for linked duplicates (export)
         "auto_smooth",  # Auto smooth-by-angle on import
+        "shading",  # Smooth / flat / smooth-by-angle shading on import
         "subdivision_depth",  # Paint segmentation subdivision depth control
         "flatten_hierarchy",  # Option to flatten parented meshes into top-level build items (export)
         "modifier_parts",  # Orca/BambuStudio modifier part subtypes (import, export, inspect)
         "slicer_profile",  # Named slicer profile selection (export)
+        "export_location",  # Center objects on origin or keep their placement (export)
     }
 )
 
@@ -611,6 +613,7 @@ def import_3mf(
     import_location: str = "KEEP",
     origin_to_geometry: str = "KEEP",
     grid_spacing: float = 0.1,
+    shading: str = "SMOOTH",
     auto_smooth: bool = False,
     auto_smooth_angle: float = 0.5236,
     paint_uv_method: str = "SMART",
@@ -634,7 +637,9 @@ def import_3mf(
     :param import_location: ``"ORIGIN"`` | ``"CURSOR"`` | ``"KEEP"`` | ``"GRID"``.
     :param origin_to_geometry: ``"KEEP"`` | ``"CENTER"`` | ``"BOTTOM"``.
     :param grid_spacing: Spacing between objects in grid layout mode.
-    :param auto_smooth: Apply Smooth by Angle modifier to imported objects.
+    :param shading: ``"SMOOTH"`` (default), ``"FLAT"``, or ``"AUTO"``
+        (add a Smooth by Angle modifier, using *auto_smooth_angle*).
+    :param auto_smooth: Same as ``shading="AUTO"``; kept for compatibility.
     :param auto_smooth_angle: Maximum angle (radians) for smooth shading
         (default 0.5236 = 30 degrees).
     :param paint_uv_method: ``"SMART"`` (default) or ``"LIGHTMAP"``.
@@ -692,6 +697,7 @@ def import_3mf(
         import_location=import_location,
         origin_to_geometry=origin_to_geometry,
         grid_spacing=grid_spacing,
+        shading=shading,
         auto_smooth=auto_smooth,
         auto_smooth_angle=auto_smooth_angle,
         paint_uv_method=paint_uv_method,
@@ -919,6 +925,7 @@ def export_3mf(
     export_hidden: bool = False,
     skip_disabled: bool = True,
     global_scale: float = 1.0,
+    export_location: str = "CENTER",
     use_mesh_modifiers: bool = True,
     coordinate_precision: int = 9,
     compression_level: int = 3,
@@ -952,6 +959,11 @@ def export_3mf(
     :param skip_disabled: Skip objects disabled for rendering (camera icon)
         and objects in excluded/hidden collections (default *True*).
     :param global_scale: Scale multiplier (default 1.0).
+    :param export_location: ``"CENTER"`` (default) moves the exported objects
+        so their combined bounding box is centered on the origin in XY with
+        its lowest point at Z=0.  ``"KEEP"`` writes object positions as they
+        are in the Blender scene (the Orca exporter's built-in bed template
+        still maps the scene origin to the bed center).
     :param use_mesh_modifiers: Apply modifiers before exporting.
     :param coordinate_precision: Decimal precision for vertex coordinates.
     :param compression_level: ZIP deflate compression level (0–9, default 3).
@@ -1080,6 +1092,7 @@ def export_3mf(
         export_hidden=export_hidden,
         include_disabled=not skip_disabled,
         global_scale=global_scale,
+        export_location=export_location,
         use_mesh_modifiers=use_mesh_modifiers,
         coordinate_precision=coordinate_precision,
         compression_level=compression_level,

@@ -62,6 +62,7 @@ class PrusaExporter(BaseExporter):
         config_root = xml.etree.ElementTree.Element("config")
 
         if combined_id is None or not part_info_list:
+            xml.etree.ElementTree.indent(config_root)
             return xml.etree.ElementTree.tostring(
                 config_root, encoding="UTF-8", xml_declaration=True
             )
@@ -107,6 +108,7 @@ class PrusaExporter(BaseExporter):
                 f"extruder={part['extruder']}"
             )
 
+        xml.etree.ElementTree.indent(config_root)
         return xml.etree.ElementTree.tostring(
             config_root, encoding="UTF-8", xml_declaration=True
         )
@@ -454,6 +456,7 @@ class PrusaExporter(BaseExporter):
                 debug(f"Wrote {config_path} to archive")
 
         document = xml.etree.ElementTree.ElementTree(root)
+        xml.etree.ElementTree.indent(document)
         with archive.open(MODEL_LOCATION, "w", force_zip64=True) as f:
             document.write(
                 f,

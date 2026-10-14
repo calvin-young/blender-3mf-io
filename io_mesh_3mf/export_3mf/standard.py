@@ -72,6 +72,28 @@ _IMPLICIT_NS = frozenset({
     "http://www.w3.org/2000/xmlns/",          # xmlns:
 })
 
+# Indentation per nesting level in exported XML, so the files are readable and
+# can be edited by hand.  Matches xml.etree.ElementTree.indent()'s default.
+_XML_INDENT = "  "
+
+
+def _indent_raw_geometry(raw: str, depth: int) -> str:
+    """Put each child of a pre-built ``<vertices>``/``<triangles>`` block on its own line.
+
+    *raw* is ``<wrapper><child .../><child .../></wrapper>`` with no whitespace,
+    as built by ``write_vertices`` / ``write_triangles``.  The children only
+    contain numeric and hex attribute values, so ``><`` only occurs between tags.
+
+    :param raw: The pre-built XML block.
+    :param depth: Nesting depth of the wrapper element.
+    :return: The block with children indented one level below the wrapper.
+    """
+    child_break = "\n" + _XML_INDENT * (depth + 1)
+    raw = raw.replace("><", ">" + child_break + "<")
+    # The closing wrapper tag belongs at the wrapper's own depth.
+    head, _, closing_tag = raw.rpartition(child_break)
+    return f"{head}\n{_XML_INDENT * depth}{closing_tag}"
+
 
 def _stream_model_to_file(f, root: xml.etree.ElementTree.Element) -> None:
     """Write the 3MF model XML to a binary file-like object *f* without using
@@ -89,6 +111,9 @@ def _stream_model_to_file(f, root: xml.etree.ElementTree.Element) -> None:
 
     Namespace declarations are derived from ElementTree's registered namespace
     map (populated by ``register_namespace()`` calls earlier in the export).
+
+    The output is indented (one element per line) so it can be read and edited
+    by hand.
     """
     # Build uri→prefix from ElementTree's internal registry.
     # _namespace_map stores {uri: prefix}, so copy it directly.
@@ -128,7 +153,7 @@ def _stream_model_to_file(f, root: xml.etree.ElementTree.Element) -> None:
             _collect_ns(child, seen)
         return seen
 
-    def _write_element(elem, is_root: bool = False) -> None:
+    def _write_element(elem, depth: int = 0, is_root: bool = False) -> None:
         tag_str = _qname(elem.tag)
 
         attr_parts: list = []
@@ -159,16 +184,23 @@ def _stream_model_to_file(f, root: xml.etree.ElementTree.Element) -> None:
             f.write(f"<{tag_str}{attr_str}>".encode("utf-8"))
             if elem.text:
                 f.write(_text_escape(elem.text).encode("utf-8"))
+            child_break = ("\n" + _XML_INDENT * (depth + 1)).encode("utf-8")
             if raw_v is not None:
                 # Geometry written as pre-built strings — the main speedup.
-                f.write(raw_v.encode("utf-8"))
+                f.write(child_break)
+                f.write(_indent_raw_geometry(raw_v, depth + 1).encode("utf-8"))
                 if raw_t is not None:
-                    f.write(raw_t.encode("utf-8"))
+                    f.write(child_break)
+                    f.write(_indent_raw_geometry(raw_t, depth + 1).encode("utf-8"))
                 clear_raw_geometry(elem)
             # Always recurse into DOM children (handles triangle_sets,
             # metadatagroup, and passthrough <triangles> from write_passthrough_triangles).
             for child in elem:
-                _write_element(child)
+                f.write(child_break)
+                _write_element(child, depth + 1)
+            # Leaf elements with only text (e.g. <metadata>) stay on one line.
+            if raw_v is not None or len(elem) > 0:
+                f.write(("\n" + _XML_INDENT * depth).encode("utf-8"))
             f.write(f"</{tag_str}>".encode("utf-8"))
         else:
             f.write(f"<{tag_str}{attr_str}/>".encode("utf-8"))
@@ -178,6 +210,7 @@ def _stream_model_to_file(f, root: xml.etree.ElementTree.Element) -> None:
 
     f.write(b"<?xml version='1.0' encoding='UTF-8'?>\n")
     _write_element(root, is_root=True)
+    f.write(b"\n")
 
 
 def _is_object_excluded(obj: bpy.types.Object, ctx) -> bool:
@@ -568,7 +601,8 @@ class StandardExporter(BaseExporter):
         """
         ctx = self.ctx
         transformation = mathutils.Matrix.Scale(global_scale, 4)
-        transformation = self._compute_centering_offset(blender_objects, transformation) @ transformation
+        if ctx.options.export_location == "CENTER":
+            transformation = self._compute_centering_offset(blender_objects, transformation) @ transformation
 
         # Detect linked duplicates if component optimization is enabled
         component_groups = {}
