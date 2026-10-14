@@ -412,10 +412,15 @@ class ViewportProgressBar:
     Thread safety: must be called from Blender's main thread.
     """
 
+    # Minimum seconds between forced repaints from update().  Each repaint
+    # redraws the whole window, which gets slower as imported objects pile up.
+    _MIN_REDRAW_INTERVAL = 0.1
+
     def __init__(self) -> None:
         self._active: bool = False
         self._start_time: float = 0.0
         self._phases: List[str] = []
+        self._last_redraw: float = 0.0
 
     def __enter__(self) -> "ViewportProgressBar":
         return self
@@ -492,7 +497,7 @@ class ViewportProgressBar:
             "elapsed": time.time() - self._start_time,
         })
         _write_vp_state(_VIEWPORT_STATE)
-        self._force_redraw()
+        self._force_redraw(throttle=True)
 
     def finish(self) -> None:
         """Clear the bar, unregister the draw handler, and repaint.
@@ -524,13 +529,19 @@ class ViewportProgressBar:
         """Always False — the viewport bar has no cancel button."""
         return False
 
-    def _force_redraw(self) -> None:
+    def _force_redraw(self, throttle: bool = False) -> None:
         """Tag all 3D viewport areas dirty and request an immediate swap.
 
         ``tag_redraw()`` schedules the repaint; ``wm.redraw_timer`` forces it
         to happen *now* even during a blocking operator execute().  The call
-        costs ~1–5 ms and is made at most once per ``update()`` / ``finish()``.
+        redraws the whole window, so its cost grows with the scene.  With
+        *throttle*, repaints closer together than ``_MIN_REDRAW_INTERVAL`` are
+        skipped (the next update or ``finish()`` shows the latest state).
         """
+        now = time.perf_counter()
+        if throttle and now - self._last_redraw < self._MIN_REDRAW_INTERVAL:
+            return
+        self._last_redraw = now
         try:
             for window in bpy.context.window_manager.windows:
                 for area in window.screen.areas:
