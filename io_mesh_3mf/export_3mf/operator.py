@@ -221,11 +221,13 @@ class EXPORT_OT_threemf_preset(AddPresetBase, bpy.types.Operator):
         "op.export_hidden",
         "op.include_disabled",
         "op.global_scale",
+        "op.export_location",
         "op.use_mesh_modifiers",
         "op.coordinate_precision",
         "op.compression_level",
         "op.use_orca_format",
         "op.use_components",
+        "op.flatten_hierarchy",
         "op.mmu_slicer_format",
         "op.slicer_profile",
         "op.subdivision_depth",
@@ -336,6 +338,25 @@ class Export3MF(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
     )
     global_scale: bpy.props.FloatProperty(
         name="Scale", default=1.0, soft_min=0.001, soft_max=1000.0, min=1e-6, max=1e6
+    )
+    export_location: bpy.props.EnumProperty(
+        name="Location",
+        description="Where to place exported objects in the 3MF file",
+        items=[
+            (
+                "CENTER",
+                "Center and Drop to Bed",
+                "Center objects on the origin in X and Y, and move them down so the "
+                "lowest point is at Z=0, ready to print on an FDM slicer's bed",
+            ),
+            (
+                "KEEP",
+                "Keep Original",
+                "Keep object positions from the Blender scene. Use when placement matters, "
+                "e.g. pre-arranged build volumes or parts that should line up with other files",
+            ),
+        ],
+        default="CENTER",
     )
     use_mesh_modifiers: bpy.props.BoolProperty(
         name="Apply Modifiers",
@@ -497,10 +518,16 @@ class Export3MF(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
             self.export_hidden = prefs.preferences.default_export_hidden
             self.use_mesh_modifiers = prefs.preferences.default_apply_modifiers
             self.global_scale = prefs.preferences.default_global_scale
+            self.export_location = prefs.preferences.default_export_location
             self.use_orca_format = prefs.preferences.default_multi_material_export
             self.subdivision_depth = prefs.preferences.default_subdivision_depth
             self.thumbnail_mode = prefs.preferences.default_thumbnail_mode
             self.thumbnail_resolution = prefs.preferences.default_thumbnail_resolution
+            self.use_selection = prefs.preferences.default_use_selection
+            self.include_disabled = prefs.preferences.default_include_disabled
+            self.use_components = prefs.preferences.default_use_components
+            self.flatten_hierarchy = prefs.preferences.default_flatten_hierarchy
+            self.mmu_slicer_format = prefs.preferences.default_mmu_slicer_format
         self.report({"INFO"}, "Exporting, please wait...")
         return super().invoke(context, event)
 
@@ -559,6 +586,7 @@ class Export3MF(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
             col.prop(self, "use_components")
             col.prop(self, "flatten_hierarchy")
             col.separator()
+            col.prop(self, "export_location")
             col.prop(self, "global_scale")
             col.prop(self, "coordinate_precision")
 
@@ -596,6 +624,7 @@ class Export3MF(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
             export_hidden=self.export_hidden,
             include_disabled=self.include_disabled,
             global_scale=self.global_scale,
+            export_location=self.export_location,
             use_mesh_modifiers=self.use_mesh_modifiers,
             coordinate_precision=self.coordinate_precision,
             compression_level=self.compression_level,

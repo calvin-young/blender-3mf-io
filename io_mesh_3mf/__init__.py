@@ -146,9 +146,35 @@ class ThreeMFPreferences(bpy.types.AddonPreferences):
     )
 
     # Export behavior settings
+    default_use_selection: bpy.props.BoolProperty(
+        name="Selection Only",
+        description="Export selected objects only",
+        default=False,
+    )
+
     default_export_hidden: bpy.props.BoolProperty(
         name="Include Hidden Objects",
         description="Include viewport-hidden objects in exports. When off, hidden objects are skipped",
+        default=False,
+    )
+
+    default_include_disabled: bpy.props.BoolProperty(
+        name="Include Disabled Objects",
+        description="Include objects disabled for rendering (camera icon) and objects in excluded collections",
+        default=False,
+    )
+
+    default_use_components: bpy.props.BoolProperty(
+        name="Use Components",
+        description="Export linked duplicates (Alt+D) as component instances for smaller file sizes",
+        default=True,
+    )
+
+    default_flatten_hierarchy: bpy.props.BoolProperty(
+        name="Flatten Hierarchy",
+        description="Write child meshes directly as top-level build items instead of "
+        "using component containers. Some printing services reject files that use "
+        "3MF component references",
         default=False,
     )
 
@@ -156,6 +182,20 @@ class ThreeMFPreferences(bpy.types.AddonPreferences):
         name="Apply Modifiers",
         description="Bake modifiers into mesh before export. Disable to export base mesh only",
         default=True,
+    )
+
+    default_export_location: bpy.props.EnumProperty(
+        name="Export Location",
+        description="Default placement of exported objects in the 3MF file",
+        items=[
+            (
+                "CENTER",
+                "Center and Drop to Bed",
+                "Center objects on the origin in X and Y, and move them down so the lowest point is at Z=0",
+            ),
+            ("KEEP", "Keep Original", "Keep object positions from the Blender scene"),
+        ],
+        default="CENTER",
     )
 
     # Scale settings
@@ -242,10 +282,16 @@ class ThreeMFPreferences(bpy.types.AddonPreferences):
         default="KEEP",
     )
 
-    default_auto_smooth: bpy.props.BoolProperty(
-        name="Smooth by Angle",
-        description="Apply Smooth by Angle modifier to imported objects by default",
-        default=False,
+    default_shading: bpy.props.EnumProperty(
+        name="Shading",
+        description="Default shading for imported objects",
+        items=[
+            ("SMOOTH", "Smooth", "Smooth shading on all faces"),
+            ("FLAT", "Flat", "Flat shading on all faces, showing every facet"),
+            ("AUTO", "Smooth by Angle",
+             "Add a Smooth by Angle modifier: smooth, except for edges sharper than the angle"),
+        ],
+        default="SMOOTH",
     )
 
     default_auto_smooth_angle: bpy.props.FloatProperty(
@@ -330,6 +376,16 @@ class ThreeMFPreferences(bpy.types.AddonPreferences):
         default="AUTO",
     )
 
+    default_mmu_slicer_format: bpy.props.EnumProperty(
+        name="Slicer Format",
+        description="Default target slicer format for multi-material export",
+        items=[
+            ("ORCA", "Orca Slicer / BambuStudio", "Use Production Extension with paint_color attributes"),
+            ("PRUSA", "PrusaSlicer / SuperSlicer", "Use mmu_segmentation attributes"),
+        ],
+        default="ORCA",
+    )
+
     default_subdivision_depth: bpy.props.IntProperty(
         name="Subdivision Depth",
         description=(
@@ -408,11 +464,17 @@ class ThreeMFPreferences(bpy.types.AddonPreferences):
         col.label(text="Material Export Mode:", icon="COLORSET_01_VEC")
         col.prop(self, "default_multi_material_export", text="")
         if self.default_multi_material_export in ("PAINT", "AUTO"):
+            col.prop(self, "default_mmu_slicer_format")
             col.prop(self, "default_subdivision_depth")
         col.separator()
+        col.prop(self, "default_use_selection", icon="RESTRICT_SELECT_OFF")
         col.prop(self, "default_export_hidden", icon="HIDE_OFF")
+        col.prop(self, "default_include_disabled", icon="RESTRICT_RENDER_OFF")
         col.prop(self, "default_apply_modifiers", icon="MODIFIER")
+        col.prop(self, "default_use_components", icon="LINKED")
+        col.prop(self, "default_flatten_hierarchy", icon="EMPTY_AXIS")
         col.separator()
+        col.prop(self, "default_export_location")
         col.prop(self, "default_coordinate_precision")
         col.prop(self, "default_global_scale")
         col.separator()
@@ -439,8 +501,8 @@ class ThreeMFPreferences(bpy.types.AddonPreferences):
         col.prop(self, "default_origin_to_geometry")
         col.separator()
         col.label(text="Normals:", icon="MOD_SMOOTH")
-        col.prop(self, "default_auto_smooth")
-        if self.default_auto_smooth:
+        col.prop(self, "default_shading")
+        if self.default_shading == "AUTO":
             col.prop(self, "default_auto_smooth_angle")
         if self.default_import_materials == "PAINT":
             col.separator()
