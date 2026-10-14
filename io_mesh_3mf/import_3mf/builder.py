@@ -153,6 +153,10 @@ def build_object(
         )
         if mesh is None:
             return None
+        # The instance reuses the component's mesh, so the component's own
+        # transform (where e.g. Netfabb stores each instance's placement and
+        # scale) has to be applied to the object instead.
+        transformation = transformation @ _component_instance_offset(ctx, resource_object)
     else:
         mesh = _build_mesh(ctx, resource_object, objectid_stack_trace)
 
@@ -309,6 +313,38 @@ def build_object(
 # ---------------------------------------------------------------------------
 # Private helpers
 # ---------------------------------------------------------------------------
+
+def _component_instance_offset(
+    ctx: "ImportContext",
+    resource_object: ResourceObject,
+) -> mathutils.Matrix:
+    """Return the combined transform of a chain of single-component instances.
+
+    Follows ``instance -> component -> (instance -> component ...)`` down to
+    the object that holds the mesh, multiplying the component transforms.
+
+    :param ctx: Import context.
+    :param resource_object: A component instance (no triangles, one component).
+    :return: Transform from the mesh's coordinates to the instance's.
+    """
+    offset = mathutils.Matrix.Identity(4)
+    seen = set()
+    current = resource_object
+    while (
+        current is not None
+        and not current.triangles
+        and current.components
+        and len(current.components) == 1
+    ):
+        component = current.components[0]
+        if component.resource_object in seen:
+            break  # Recursive components; reported elsewhere.
+        seen.add(component.resource_object)
+        if component.transformation is not None:
+            offset = offset @ component.transformation
+        current = ctx.resource_objects.get(component.resource_object)
+    return offset
+
 
 def _build_component_instance(
     ctx: "ImportContext",

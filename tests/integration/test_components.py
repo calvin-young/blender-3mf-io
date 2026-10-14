@@ -235,5 +235,89 @@ class TestComponents(unittest.TestCase):
                 )
 
 
+@unittest.skipIf(bpy is None, "Blender API not available")
+class TestComponentInstanceTransforms(unittest.TestCase):
+    """Component instances whose placement is stored on the <component>.
+
+    Some producers (e.g. Autodesk Netfabb) write each copy of a part as an
+    object with a single transformed <component> and an identity build item.
+    """
+
+    MODEL = """<?xml version="1.0" encoding="UTF-8"?>
+<model unit="millimeter" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">
+  <resources>
+    <object id="1" type="model">
+      <mesh>
+        <vertices>
+          <vertex x="0" y="0" z="0"/><vertex x="1" y="0" z="0"/>
+          <vertex x="0" y="1" z="0"/><vertex x="0" y="0" z="1"/>
+        </vertices>
+        <triangles>
+          <triangle v1="0" v2="2" v3="1"/><triangle v1="0" v2="1" v3="3"/>
+          <triangle v1="1" v2="2" v3="3"/><triangle v1="0" v2="3" v3="2"/>
+        </triangles>
+      </mesh>
+    </object>
+    <object id="2" type="model">
+      <components><component objectid="1" transform="1 0 0 0 1 0 0 0 1 10 0 0"/></components>
+    </object>
+    <object id="3" type="model">
+      <components><component objectid="1" transform="2 0 0 0 2 0 0 0 2 0 20 5"/></components>
+    </object>
+  </resources>
+  <build>
+    <item objectid="2"/>
+    <item objectid="3"/>
+  </build>
+</model>
+"""
+
+    CONTENT_TYPES = """<?xml version="1.0" encoding="UTF-8"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/>
+</Types>
+"""
+
+    RELS = """<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Target="/3D/3dmodel.model" Id="rel0"
+    Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/>
+</Relationships>
+"""
+
+    def setUp(self):
+        bpy.ops.wm.read_homefile(use_empty=True)
+        self.temp_file = tempfile.NamedTemporaryFile(suffix=".3mf", delete=False)
+        self.temp_file.close()
+        with zipfile.ZipFile(self.temp_file.name, "w") as archive:
+            archive.writestr("[Content_Types].xml", self.CONTENT_TYPES)
+            archive.writestr("_rels/.rels", self.RELS)
+            archive.writestr("3D/3dmodel.model", self.MODEL)
+
+    def tearDown(self):
+        if os.path.exists(self.temp_file.name):
+            os.unlink(self.temp_file.name)
+
+    def test_component_transforms_are_applied(self):
+        """Each instance gets its component's translation and scale."""
+        bpy.context.scene.unit_settings.scale_length = 0.001  # 1 unit = 1 mm
+        bpy.ops.import_mesh.threemf(filepath=self.temp_file.name)
+
+        objects = sorted(
+            (obj for obj in bpy.data.objects if obj.type == "MESH"),
+            key=lambda obj: obj.matrix_world.translation.y,
+        )
+        self.assertEqual(len(objects), 2)
+        self.assertEqual(objects[0].data, objects[1].data, "Instances should share mesh data")
+
+        first, second = objects
+        self.assertAlmostEqual(first.matrix_world.translation.x, 10.0, places=4)
+        self.assertAlmostEqual(first.matrix_world.to_scale().x, 1.0, places=4)
+        self.assertAlmostEqual(second.matrix_world.translation.y, 20.0, places=4)
+        self.assertAlmostEqual(second.matrix_world.translation.z, 5.0, places=4)
+        self.assertAlmostEqual(second.matrix_world.to_scale().x, 2.0, places=4)
+
+
 if __name__ == "__main__":
     unittest.main()
