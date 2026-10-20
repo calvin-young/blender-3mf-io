@@ -78,6 +78,20 @@ def detect_textured_materials(
     return textured_materials
 
 
+def tilestyle_for_blender_extension(extension: str) -> str:
+    """Map a Blender Image Texture extension to a 3MF tile style.
+
+    ``REPEAT`` is ``wrap``, ``MIRROR`` is ``mirror``, ``EXTEND`` (nearest
+    edge pixel) is ``clamp`` and ``CLIP`` (nothing outside the image) is
+    ``none``.
+    """
+    return {
+        "MIRROR": "mirror",
+        "EXTEND": "clamp",
+        "CLIP": "none",
+    }.get(extension, "wrap")
+
+
 def _find_base_color_texture(material: bpy.types.Material) -> Optional[Dict]:
     """
     Find Image Texture node connected to Principled BSDF Base Color input.
@@ -115,15 +129,7 @@ def _find_base_color_texture(material: bpy.types.Material) -> Optional[Dict]:
 
                 # Determine tile style from extension mode
                 extension = getattr(from_node, "extension", "REPEAT")
-                if extension == "CLIP":
-                    tilestyleu = "clamp"
-                    tilestylev = "clamp"
-                elif extension == "EXTEND":
-                    tilestyleu = "mirror"  # Closest approximation
-                    tilestylev = "mirror"
-                else:
-                    tilestyleu = "wrap"
-                    tilestylev = "wrap"
+                tilestyleu = tilestylev = tilestyle_for_blender_extension(extension)
 
                 # Check for stored metadata from import
                 tilestyleu = material.get("3mf_texture_tilestyleu", tilestyleu)
@@ -207,15 +213,7 @@ def _find_texture_from_input(material: bpy.types.Material, input_name: str, non_
 
     # Determine tile style from extension mode
     extension = getattr(tex_node, "extension", "REPEAT")
-    if extension == "CLIP":
-        tilestyleu = "clamp"
-        tilestylev = "clamp"
-    elif extension == "EXTEND":
-        tilestyleu = "mirror"  # Closest approximation
-        tilestylev = "mirror"
-    else:
-        tilestyleu = "wrap"
-        tilestylev = "wrap"
+    tilestyleu = tilestylev = tilestyle_for_blender_extension(extension)
 
     # Determine filter from interpolation
     interpolation = getattr(tex_node, "interpolation", "Linear")

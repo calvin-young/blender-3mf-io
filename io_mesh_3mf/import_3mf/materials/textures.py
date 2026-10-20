@@ -285,6 +285,23 @@ def get_or_create_textured_material(
     )
 
 
+def blender_extension_for_tilestyle(tilestyleu: str, tilestylev: str) -> str:
+    """Map 3MF ``tilestyleu``/``tilestylev`` to a Blender Image Texture extension.
+
+    Per the Materials Extension, ``clamp`` uses the nearest edge pixel and
+    ``none`` behaves like ``clamp`` for a single property, which is Blender's
+    ``EXTEND``; ``mirror`` is ``MIRROR`` and ``wrap`` (the default) is
+    ``REPEAT``.  Blender uses one mode for both axes, so a non-repeating
+    axis takes precedence.
+    """
+    styles = {tilestyleu or "wrap", tilestylev or "wrap"}
+    if styles & {"clamp", "none"}:
+        return "EXTEND"
+    if "mirror" in styles:
+        return "MIRROR"
+    return "REPEAT"
+
+
 def setup_textured_material(
     op, material: bpy.types.Material, texture: ResourceTexture
 ) -> None:
@@ -323,12 +340,7 @@ def setup_textured_material(
     links.new(tex_coord.outputs["UV"], tex_node.inputs["Vector"])
 
     # Set texture extension mode based on tilestyle
-    if texture.tilestyleu == "clamp" or texture.tilestylev == "clamp":
-        tex_node.extension = "CLIP"
-    elif texture.tilestyleu == "mirror" or texture.tilestylev == "mirror":
-        tex_node.extension = "EXTEND"
-    else:
-        tex_node.extension = "REPEAT"
+    tex_node.extension = blender_extension_for_tilestyle(texture.tilestyleu, texture.tilestylev)
 
     # Set interpolation based on filter
     if texture.filter == "nearest":
@@ -405,12 +417,7 @@ def setup_multi_textured_material(
         tex_node.interpolation = "Smart"
 
         # Set texture extension mode
-        if texture.tilestyleu == "clamp" or texture.tilestylev == "clamp":
-            tex_node.extension = "CLIP"
-        elif texture.tilestyleu == "mirror" or texture.tilestylev == "mirror":
-            tex_node.extension = "EXTEND"
-        else:
-            tex_node.extension = "REPEAT"
+        tex_node.extension = blender_extension_for_tilestyle(texture.tilestyleu, texture.tilestylev)
 
         # Set interpolation
         if texture.filter == "nearest":
