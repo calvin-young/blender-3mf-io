@@ -611,6 +611,42 @@ class TestColorgroup(MaterialsExtensionTestCase):
             sorted(orig_values), sorted(exp_values), "Color values not preserved"
         )
 
+    def test_colorgroup_alpha_is_ignored(self):
+        """Colors are opaque per the spec, even when written with alpha 00."""
+        # Object default is color 0; the first triangle uses color 1.
+        mesh = CUBE_MESH.replace(
+            '<object id="100" type="model">',
+            '<object id="100" type="model" pid="1" pindex="0">',
+        ).replace(
+            '<triangle v1="0" v2="1" v3="2" />',
+            '<triangle v1="0" v2="1" v3="2" pid="1" p1="1" />',
+        )
+        model_xml = f'''<?xml version="1.0" encoding="UTF-8"?>
+<model xmlns="{NS_CORE}" xmlns:m="{NS_MATERIAL}" unit="millimeter">
+  <resources>
+    <m:colorgroup id="1">
+      <m:color color="#FF000000" />
+      <m:color color="#0000FF00" />
+    </m:colorgroup>
+    {mesh}
+  </resources>
+  <build>
+    <item objectid="100" />
+  </build>
+</model>'''
+
+        input_path = self.create_test_3mf(model_xml)
+        self.assertTrue(self.import_3mf(input_path), "Import failed")
+
+        meshes = [obj for obj in bpy.data.objects if obj.type == "MESH"]
+        self.assertEqual(len(meshes), 1)
+        materials = [slot.material for slot in meshes[0].material_slots if slot.material]
+        self.assertEqual(len(materials), 2, "Expected one material per color")
+        for material in materials:
+            principled = material.node_tree.nodes.get("Principled BSDF")
+            self.assertIsNotNone(principled)
+            self.assertAlmostEqual(principled.inputs["Alpha"].default_value, 1.0)
+
 
 # =============================================================================
 # Test: Texture2D and Texture2DGroup

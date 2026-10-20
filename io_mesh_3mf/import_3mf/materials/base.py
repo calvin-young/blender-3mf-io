@@ -351,7 +351,14 @@ def _read_colorgroups(op, root, material_ns: dict, display_properties: dict) -> 
                         red = srgb_to_linear(int(color[0:2], 16) / 255)
                         green = srgb_to_linear(int(color[2:4], 16) / 255)
                         blue = srgb_to_linear(int(color[4:6], 16) / 255)
-                        alpha = int(color[6:8], 16) / 255  # Alpha is linear
+                        # Per the Materials Extension, colors are fully opaque
+                        # except as a non-base layer of <multiproperties>, so
+                        # the alpha is ignored here (layers aren't blended on
+                        # import).  Some producers, e.g. Autodesk Netfabb,
+                        # write every color with alpha 00; applying it made
+                        # those parts invisible.  The original string is kept
+                        # in raw_colors for round-trip export.
+                        alpha = 1.0
                     else:
                         warn(f"Invalid color for colorgroup {colorgroup_id}: #{color}")
                         op.safe_report({"WARNING"}, f"Invalid color: #{color}")
