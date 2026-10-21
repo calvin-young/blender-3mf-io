@@ -231,6 +231,7 @@ class EXPORT_OT_threemf_preset(AddPresetBase, bpy.types.Operator):
         "op.subdivision_depth",
         "op.thumbnail_mode",
         "op.thumbnail_resolution",
+        "op.strip_identifying_data",
     ]
 
 
@@ -483,6 +484,16 @@ class Export3MF(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
 
     # No FILE_PATH subtype: its browse button can't work here, because Blender
     # can't open a second file browser while the export file browser is open.
+    strip_identifying_data: bpy.props.BoolProperty(
+        name="Strip Names & Metadata",
+        description=(
+            "Leave out object, material and texture names, part numbers, metadata, the thumbnail, "
+            "timestamps, and data carried over from imported 3MF files. Geometry, colors, textures "
+            "and placement are unchanged. Use when sharing parts whose names or origin are sensitive"
+        ),
+        default=False,
+    )
+
     thumbnail_image_path: bpy.props.StringProperty(
         name="Path",
         description=(
@@ -498,6 +509,7 @@ class Export3MF(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
         if prefs and prefs.preferences:
             self.coordinate_precision = prefs.preferences.default_coordinate_precision
             self.compression_level = prefs.preferences.default_compression_level
+            self.strip_identifying_data = prefs.preferences.default_strip_identifying_data
             self.export_hidden = prefs.preferences.default_export_hidden
             self.use_mesh_modifiers = prefs.preferences.default_apply_modifiers
             self.global_scale = prefs.preferences.default_global_scale
@@ -571,17 +583,21 @@ class Export3MF(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
         header.label(text="Archive", icon="PACKAGE")
         if body:
             body.prop(self, "compression_level")
+            body.prop(self, "strip_identifying_data")
             body.separator()
-            body.label(text="Thumbnail", icon="IMAGE_DATA")
-            body.use_property_split = False
-            body.row().prop(self, "thumbnail_mode", expand=True)
+            # Stripping leaves out the thumbnail regardless of these settings.
+            thumb = body.column()
+            thumb.active = not self.strip_identifying_data
+            thumb.label(text="Thumbnail", icon="IMAGE_DATA")
+            thumb.use_property_split = False
+            thumb.row().prop(self, "thumbnail_mode", expand=True)
             if self.thumbnail_mode == "AUTO":
-                body.use_property_split = True
-                body.prop(self, "thumbnail_resolution")
+                thumb.use_property_split = True
+                thumb.prop(self, "thumbnail_resolution")
             elif self.thumbnail_mode == "CUSTOM":
-                body.prop(self, "thumbnail_image", text="")
+                thumb.prop(self, "thumbnail_image", text="")
                 if self.thumbnail_image == "__CUSTOM_PATH__":
-                    body.prop(self, "thumbnail_image_path", text="")
+                    thumb.prop(self, "thumbnail_image_path", text="")
 
     def safe_report(self, level: Set[str], message: str) -> None:
         """
@@ -616,6 +632,7 @@ class Export3MF(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
                 if self.thumbnail_image == "__CUSTOM_PATH__"
                 else self.thumbnail_image
             ),
+            strip_identifying_data=self.strip_identifying_data,
         )
         return ExportContext(
             options=options,
@@ -671,7 +688,10 @@ class Export3MF(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
         ctx._progress_begin(context, "Exporting 3MF...")
 
         try:
-            archive = create_archive(self.filepath, ctx.safe_report, ctx.options.compression_level)
+            archive = create_archive(
+                self.filepath, ctx.safe_report, ctx.options.compression_level,
+                preserve_imported=not ctx.options.strip_identifying_data,
+            )
             if archive is None:
                 return {"CANCELLED"}
 

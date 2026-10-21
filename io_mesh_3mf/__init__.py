@@ -363,6 +363,16 @@ class ThreeMFPreferences(bpy.types.AddonPreferences):
         step=64,
     )
 
+    default_strip_identifying_data: bpy.props.BoolProperty(
+        name="Strip Names & Metadata",
+        description=(
+            "Leave out object, material and texture names, part numbers, metadata, the thumbnail, "
+            "timestamps, and data carried over from imported 3MF files. Geometry, colors, textures "
+            "and placement are unchanged. Use when sharing parts whose names or origin are sensitive"
+        ),
+        default=False,
+    )
+
     # ---- Rating nudge tracking (not shown in prefs UI) ----
     export_count: bpy.props.IntProperty(
         name="Export Count",
@@ -407,6 +417,7 @@ class ThreeMFPreferences(bpy.types.AddonPreferences):
         col.prop(self, "default_global_scale")
         col.separator()
         col.prop(self, "default_compression_level")
+        col.prop(self, "default_strip_identifying_data")
         col.separator()
         col.label(text="Thumbnail:", icon="IMAGE_DATA")
         col.prop(self, "default_thumbnail_mode")

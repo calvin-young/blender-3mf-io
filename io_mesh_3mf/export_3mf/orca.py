@@ -60,6 +60,7 @@ from .components import collect_mesh_objects
 from .segmentation import texture_to_segmentation
 from .standard import BaseExporter, _stream_model_to_file
 from .thumbnail import write_thumbnail
+from .privacy import strip_config_names, strip_model_xml
 from ..import_3mf.archive import get_stashed_config
 from ..slicer_profiles import get_profile_config
 
@@ -306,6 +307,8 @@ class OrcaExporter(BaseExporter):
 
             # Create safe filename
             safe_name = re.sub(r"[^\w\-.]", "_", blender_object.name)
+            if ctx.options.strip_identifying_data:
+                safe_name = "object"
             object_path = f"/3D/Objects/{safe_name}_{object_counter}.model"
 
             # Get transformation
@@ -734,6 +737,9 @@ class OrcaExporter(BaseExporter):
         # Clean up mesh
         eval_object.to_mesh_clear()
 
+        if ctx.options.strip_identifying_data:
+            strip_model_xml(root)
+
         # Write to archive using the streaming writer — bypasses ElementTree's
         # Python-level DOM walk and injects the pre-built geometry strings directly.
         archive_path = object_path.lstrip("/")
@@ -914,6 +920,9 @@ class OrcaExporter(BaseExporter):
                 },
             )
             item_idx += 1
+
+        if self.ctx.options.strip_identifying_data:
+            strip_model_xml(root, keep_metadata={"Application"})
 
         # Write to archive
         document = xml.etree.ElementTree.ElementTree(root)
@@ -1498,6 +1507,9 @@ class OrcaExporter(BaseExporter):
                 transform=transform_str,
                 offset="0 0 0",
             )
+
+        if self.ctx.options.strip_identifying_data:
+            strip_config_names(root)
 
         tree = xml.etree.ElementTree.ElementTree(root)
 

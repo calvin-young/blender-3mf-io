@@ -70,6 +70,9 @@ def write_thumbnail(
     if mode == "NONE":
         debug("Thumbnail generation disabled by user")
         return
+    if ctx is not None and ctx.options.strip_identifying_data:
+        debug("Thumbnail left out (strip identifying data)")
+        return
 
     try:
         if mode == "CUSTOM" and custom_path:

@@ -57,6 +57,7 @@ class ExportOptions:
     thumbnail_mode: str = "AUTO"  # "AUTO" | "CUSTOM" | "NONE"
     thumbnail_resolution: int = 256  # Width & height in pixels
     thumbnail_image: str = ""  # File path for CUSTOM mode
+    strip_identifying_data: bool = False  # Leave out names, metadata, thumbnail, timestamps
 
 
 # ---------------------------------------------------------------------------

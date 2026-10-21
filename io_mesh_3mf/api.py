@@ -134,6 +134,7 @@ API_CAPABILITIES = frozenset(
         "global_scale",  # Scale multiplier parameter (import & export)
         "compression",  # Configurable ZIP compression level (export)
         "thumbnail",  # Thumbnail generation (export)
+        "strip_identifying_data",  # Leave out names, metadata, thumbnail (export)
         "use_components",  # Component instancing for linked duplicates (export)
         "auto_smooth",  # Auto smooth-by-angle on import
         "subdivision_depth",  # Paint segmentation subdivision depth control
@@ -931,6 +932,7 @@ def export_3mf(
     thumbnail_mode: str = "AUTO",
     thumbnail_resolution: int = 256,
     thumbnail_image: str = "",
+    strip_identifying_data: bool = False,
     project_template: str | None = None,
     object_settings: dict | None = None,
     on_progress: ProgressCallback | None = None,
@@ -984,6 +986,10 @@ def export_3mf(
     :param thumbnail_resolution: Width and height in pixels for AUTO mode
         (default 256).
     :param thumbnail_image: Absolute path to an image file for CUSTOM mode.
+    :param strip_identifying_data: Leave out object, material and texture
+        names, part numbers, metadata, the thumbnail, timestamps, and data
+        carried over from imported 3MF files.  Geometry, colors, textures and
+        placement are unchanged.
     :param project_template: Absolute path to a JSON file to use as the Orca
         ``project_settings.config`` instead of the built-in template.  The
         addon loads this file, patches ``filament_colour`` and resizes
@@ -1092,6 +1098,7 @@ def export_3mf(
         thumbnail_mode=thumbnail_mode,
         thumbnail_resolution=thumbnail_resolution,
         thumbnail_image=thumbnail_image,
+        strip_identifying_data=strip_identifying_data,
     )
     ctx = ExportContext(
         options=options,
@@ -1133,7 +1140,10 @@ def export_3mf(
         on_progress(10, "Creating archive…")
 
     # Create archive.
-    archive = create_archive(filepath, ctx.safe_report, ctx.options.compression_level)
+    archive = create_archive(
+        filepath, ctx.safe_report, ctx.options.compression_level,
+        preserve_imported=not strip_identifying_data,
+    )
     if archive is None:
         if _pw is not None:
             _pw.finish()
