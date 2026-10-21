@@ -153,6 +153,10 @@ def build_object(
         )
         if mesh is None:
             return None
+        # The instance reuses the component's mesh, so the component's own
+        # transform (where e.g. Netfabb stores each instance's placement and
+        # scale) has to be applied to the object instead.
+        transformation = transformation @ _component_instance_offset(ctx, resource_object)
     else:
         mesh = _build_mesh(ctx, resource_object, objectid_stack_trace)
 
@@ -249,9 +253,11 @@ def build_object(
         ):
             blender_object.hide_render = True
 
-        # Apply Smooth by Angle modifier if requested
-        if ctx.options.auto_smooth:
+        # Apply the requested shading. New meshes are smooth-shaded already.
+        if ctx.options.shading == "AUTO" or ctx.options.auto_smooth:
             _apply_auto_smooth(blender_object, ctx.options.auto_smooth_angle)
+        elif ctx.options.shading == "FLAT":
+            blender_object.data.shade_flat()
     else:
         # No mesh: either pass through parent, or create an Empty for
         # multi-part assemblies (Orca modifier groups) so the hierarchy
@@ -309,6 +315,38 @@ def build_object(
 # ---------------------------------------------------------------------------
 # Private helpers
 # ---------------------------------------------------------------------------
+
+def _component_instance_offset(
+    ctx: "ImportContext",
+    resource_object: ResourceObject,
+) -> mathutils.Matrix:
+    """Return the combined transform of a chain of single-component instances.
+
+    Follows ``instance -> component -> (instance -> component ...)`` down to
+    the object that holds the mesh, multiplying the component transforms.
+
+    :param ctx: Import context.
+    :param resource_object: A component instance (no triangles, one component).
+    :return: Transform from the mesh's coordinates to the instance's.
+    """
+    offset = mathutils.Matrix.Identity(4)
+    seen = set()
+    current = resource_object
+    while (
+        current is not None
+        and not current.triangles
+        and current.components
+        and len(current.components) == 1
+    ):
+        component = current.components[0]
+        if component.resource_object in seen:
+            break  # Recursive components; reported elsewhere.
+        seen.add(component.resource_object)
+        if component.transformation is not None:
+            offset = offset @ component.transformation
+        current = ctx.resource_objects.get(component.resource_object)
+    return offset
+
 
 def _build_component_instance(
     ctx: "ImportContext",
@@ -455,6 +493,15 @@ def _apply_auto_smooth(
     bpy.context.view_layer.objects.active = blender_object
     blender_object.select_set(True)
     try:
-        bpy.ops.object.shade_auto_smooth(angle=angle)
+        # Limit the operator to this object.  Objects imported earlier stay
+        # selected, and the operator acts on every selected object, which
+        # made importing N objects cost O(N²).
+        with bpy.context.temp_override(
+            active_object=blender_object,
+            object=blender_object,
+            selected_objects=[blender_object],
+            selected_editable_objects=[blender_object],
+        ):
+            bpy.ops.object.shade_auto_smooth(angle=angle)
     except Exception:
         warn(f"Failed to apply Smooth by Angle to {blender_object.name}")

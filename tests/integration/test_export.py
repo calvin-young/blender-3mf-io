@@ -115,6 +115,59 @@ class ExportBasicTests(Blender3mfTestCase):
         self.assertTrue(self.temp_file.exists())
 
 
+class ExportLocationTests(Blender3mfTestCase):
+    """Tests for the export_location option (CENTER / KEEP)."""
+
+    def _build_item_translation(self):
+        """Return the (x, y, z) translation of the single build item, in mm."""
+        with zipfile.ZipFile(self.temp_file, "r") as archive:
+            root = ET.fromstring(archive.read("3D/3dmodel.model"))
+        items = [el for el in root.iter() if el.tag.endswith("}item")]
+        self.assertEqual(len(items), 1)
+        transform = items[0].get("transform")
+        if transform is None:
+            return (0.0, 0.0, 0.0)
+        return tuple(float(v) for v in transform.split()[9:12])
+
+    def _add_offset_cube(self):
+        # 2 m cube centered at (5, 10, 15) m: lowest point at Z = 14 m.
+        bpy.ops.mesh.primitive_cube_add(location=(5, 10, 15))
+
+    def test_center_is_default(self):
+        """Default export centers the objects in XY and drops them to Z=0."""
+        self._add_offset_cube()
+        result = bpy.ops.export_mesh.threemf(filepath=str(self.temp_file))
+        self.assertIn("FINISHED", result)
+        x, y, z = self._build_item_translation()
+        self.assertAlmostEqual(x, 0.0, places=3)
+        self.assertAlmostEqual(y, 0.0, places=3)
+        self.assertAlmostEqual(z, 1000.0, places=3)
+
+    def test_keep_preserves_scene_position(self):
+        """KEEP writes the object's scene position (converted to mm)."""
+        self._add_offset_cube()
+        result = bpy.ops.export_mesh.threemf(
+            filepath=str(self.temp_file), export_location="KEEP"
+        )
+        self.assertIn("FINISHED", result)
+        x, y, z = self._build_item_translation()
+        self.assertAlmostEqual(x, 5000.0, places=3)
+        self.assertAlmostEqual(y, 10000.0, places=3)
+        self.assertAlmostEqual(z, 15000.0, places=3)
+
+    def test_api_keep_preserves_scene_position(self):
+        """API: export_location='KEEP' writes the object's scene position."""
+        from io_mesh_3mf.api import export_3mf
+
+        self._add_offset_cube()
+        result = export_3mf(str(self.temp_file), export_location="KEEP")
+        self.assertEqual(result.status, "FINISHED")
+        x, y, z = self._build_item_translation()
+        self.assertAlmostEqual(x, 5000.0, places=3)
+        self.assertAlmostEqual(y, 10000.0, places=3)
+        self.assertAlmostEqual(z, 15000.0, places=3)
+
+
 class ExportMaterialTests(Blender3mfTestCase):
     """Material-related export tests."""
 
@@ -406,6 +459,77 @@ class ExportEdgeCaseTests(Blender3mfTestCase):
 
         # Should complete (may skip object or create empty file)
         self.assertIn("FINISHED", result)
+
+
+class ExportStripIdentifyingDataTests(Blender3mfTestCase):
+    """Tests for the strip_identifying_data export option."""
+
+    SECRET = "Zqx7"  # Marker put in every name; must not appear in a stripped file.
+
+    def _make_scene(self):
+        bpy.ops.mesh.primitive_cube_add()
+        cube = bpy.context.object
+        cube.name = f"{self.SECRET}Part"
+        cube.data.name = f"{self.SECRET}Mesh"
+        cube["3mf:partnumber"] = f"{self.SECRET}-001"
+        cube["Designer"] = {"datatype": "xs:string", "preserve": True, "value": f"{self.SECRET} Designer"}
+        material = bpy.data.materials.new(f"{self.SECRET}Material")
+        cube.data.materials.append(material)
+        bpy.context.scene["Title"] = {"datatype": "", "preserve": False, "value": f"{self.SECRET} Title"}
+        image = bpy.data.images.new(f"{self.SECRET}Thumb", width=8, height=8)
+        return image
+
+    def _archive_text(self):
+        """Return every part of the exported archive as one string, plus the part names."""
+        with zipfile.ZipFile(self.temp_file, "r") as archive:
+            names = archive.namelist()
+            text = "\n".join(
+                archive.read(name).decode("utf-8", "replace") for name in names
+            )
+        return names, text
+
+    def _export(self, mode, strip):
+        image = self._make_scene()
+        result = bpy.ops.export_mesh.threemf(
+            filepath=str(self.temp_file),
+            use_orca_format=mode,
+            thumbnail_mode="CUSTOM",
+            thumbnail_image=image.name,
+            strip_identifying_data=strip,
+        )
+        self.assertIn("FINISHED", result)
+        return self._archive_text()
+
+    def test_names_are_written_by_default(self):
+        names, text = self._export("STANDARD", strip=False)
+        self.assertIn(self.SECRET, text)
+        self.assertIn("Metadata/thumbnail.png", names)
+
+    def test_standard_export_strips_names_metadata_and_thumbnail(self):
+        names, text = self._export("STANDARD", strip=True)
+        self.assertNotIn(self.SECRET, text)
+        self.assertNotIn(self.SECRET, "\n".join(names))
+        self.assertNotIn("Metadata/thumbnail.png", names)
+        self.assertNotIn("<dcterms:created", text)
+        self.assertIn("<vertex", text)  # Geometry is still there.
+
+    def test_orca_export_strips_names_metadata_and_thumbnail(self):
+        names, text = self._export("AUTO", strip=True)  # Material slot -> Orca exporter
+        self.assertTrue(any(name.startswith("3D/Objects/") for name in names))
+        self.assertNotIn(self.SECRET, text)
+        self.assertNotIn(self.SECRET, "\n".join(names))
+        self.assertNotIn("Metadata/thumbnail.png", names)
+
+    def test_api_strip_identifying_data(self):
+        from io_mesh_3mf.api import export_3mf
+
+        self._make_scene()
+        result = export_3mf(
+            str(self.temp_file), use_orca_format="STANDARD", strip_identifying_data=True
+        )
+        self.assertEqual(result.status, "FINISHED")
+        names, text = self._archive_text()
+        self.assertNotIn(self.SECRET, text)
 
 
 if __name__ == "__main__":

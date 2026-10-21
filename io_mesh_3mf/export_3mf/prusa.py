@@ -37,6 +37,7 @@ from .materials.base import material_to_hex_color
 from .components import collect_mesh_objects
 from .standard import BaseExporter, StandardExporter
 from .thumbnail import write_thumbnail
+from .privacy import strip_model_xml
 from ..import_3mf.archive import get_stashed_config
 from ..slicer_profiles import get_profile_config
 
@@ -428,6 +429,11 @@ class PrusaExporter(BaseExporter):
         # Write filament colors to metadata for round-trip import
         write_prusa_filament_colors(archive, ctx.vertex_colors)
 
+        if ctx.options.strip_identifying_data:
+            strip_model_xml(root)
+            for index, part in enumerate(part_info_list or [], start=1):
+                part["name"] = f"Part {index}"
+
         # Write back stashed or profile PrusaSlicer config files.
         # Slic3r_PE_model.config is always regenerated so object IDs and
         # extruder assignments match the current combined-mesh export.
@@ -465,7 +471,7 @@ class PrusaExporter(BaseExporter):
             )
 
         # Write OPC Core Properties
-        write_core_properties(archive)
+        write_core_properties(archive, include_timestamps=not ctx.options.strip_identifying_data)
 
         # Write thumbnail
         write_thumbnail(archive, ctx, list(blender_objects))

@@ -39,29 +39,58 @@ from ..common.constants import (
 )
 
 
-def create_archive(filepath: str, safe_report: Callable, compression_level: int = 3) -> Optional[zipfile.ZipFile]:
+class _ThreeMFArchive(zipfile.ZipFile):
+    """
+    ZIP archive that writes the OPC package parts when it is closed.
+
+    ``_rels/.rels`` and ``[Content_Types].xml`` are written last so they
+    only describe parts that actually ended up in the archive. For example,
+    the thumbnail relationship is omitted when no thumbnail was written
+    (thumbnail mode NONE, or the thumbnail render failed).
+    """
+
+    annotations: Optional[Annotations] = None
+
+    def close(self) -> None:
+        annotations, self.annotations = self.annotations, None
+        try:
+            if annotations is not None and self.fp is not None:
+                annotations.write_rels(self)
+                annotations.write_content_types(self)
+        finally:
+            super().close()
+
+
+def create_archive(
+    filepath: str,
+    safe_report: Callable,
+    compression_level: int = 3,
+    preserve_imported: bool = True,
+) -> Optional[zipfile.ZipFile]:
     """
     Creates an empty 3MF archive.
 
     The archive is complete according to the 3MF specs except that the actual
-    3dmodel.model file is missing.
+    3dmodel.model file is missing. The OPC relationships and content types are
+    written when the archive is closed.
 
     :param filepath: The path to write the file to.
     :param safe_report: Callable for reporting errors/warnings.
     :param compression_level: ZIP deflate compression level (0=store, 9=max). Default 3.
+    :param preserve_imported: Carry over the relationships, content types and
+        must-preserve parts stored from previously imported 3MF files.
     :return: A zip archive that other functions can add things to.
     """
     try:
-        archive = zipfile.ZipFile(
+        archive = _ThreeMFArchive(
             filepath, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=compression_level
         )
 
         # Store the file annotations we got from imported 3MF files.
-        annotations = Annotations()
-        annotations.retrieve()
-        annotations.write_rels(archive)
-        annotations.write_content_types(archive)
-        must_preserve(archive)
+        archive.annotations = Annotations()
+        if preserve_imported:
+            archive.annotations.retrieve()
+            must_preserve(archive)
     except EnvironmentError as e:
         error(f"Unable to write 3MF archive to {filepath}: {e}")
         safe_report({"ERROR"}, f"Unable to write 3MF archive to {filepath}: {e}")
@@ -92,7 +121,7 @@ def must_preserve(archive: zipfile.ZipFile) -> None:
             f.write(contents)
 
 
-def write_core_properties(archive: zipfile.ZipFile) -> None:
+def write_core_properties(archive: zipfile.ZipFile, include_timestamps: bool = True) -> None:
     """
     Write OPC Core Properties (Dublin Core metadata) to the archive.
 
@@ -100,6 +129,7 @@ def write_core_properties(archive: zipfile.ZipFile) -> None:
     date as defined by the Open Packaging Conventions specification.
 
     :param archive: The 3MF archive to write Core Properties into.
+    :param include_timestamps: Write the created / modified dates.
     """
     # Register namespaces for cleaner output
     xml.etree.ElementTree.register_namespace("cp", CORE_PROPERTIES_NAMESPACE)
@@ -115,16 +145,17 @@ def write_core_properties(archive: zipfile.ZipFile) -> None:
     creator = xml.etree.ElementTree.SubElement(root, f"{{{DC_NAMESPACE}}}creator")
     creator.text = "Blender 3MF Format Add-on"
 
-    # dcterms:created - when the file was created (W3CDTF format)
-    now = datetime.datetime.now(datetime.timezone.utc)
-    created = xml.etree.ElementTree.SubElement(root, f"{{{DCTERMS_NAMESPACE}}}created")
-    created.text = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+    if include_timestamps:
+        # dcterms:created - when the file was created (W3CDTF format)
+        now = datetime.datetime.now(datetime.timezone.utc)
+        created = xml.etree.ElementTree.SubElement(root, f"{{{DCTERMS_NAMESPACE}}}created")
+        created.text = now.strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    # dcterms:modified - when the file was last modified
-    modified = xml.etree.ElementTree.SubElement(
-        root, f"{{{DCTERMS_NAMESPACE}}}modified"
-    )
-    modified.text = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+        # dcterms:modified - when the file was last modified
+        modified = xml.etree.ElementTree.SubElement(
+            root, f"{{{DCTERMS_NAMESPACE}}}modified"
+        )
+        modified.text = now.strftime("%Y-%m-%dT%H:%M:%SZ")
 
     # Write the Core Properties file
     document = xml.etree.ElementTree.ElementTree(root)

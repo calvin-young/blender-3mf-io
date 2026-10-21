@@ -56,6 +56,9 @@ ConflictingContentType = object()
 
 ANNOTATION_FILE = ".3mf_annotations"
 
+# Archive path of the package thumbnail written by the exporter.
+THUMBNAIL_LOCATION = "Metadata/thumbnail.png"
+
 __all__ = [
     "Annotations",
     "Relationship",
@@ -144,9 +147,14 @@ class Annotations:
                     self.annotations[filename].add(ContentType(content_type))
 
     def write_rels(self, archive: zipfile.ZipFile) -> None:
-        """Write relationship annotations to the archive as ``.rels`` files."""
+        """Write relationship annotations to the archive as ``.rels`` files.
+
+        Relationships are only written for parts that exist in *archive*, so
+        call this after every other part has been written.
+        """
         current_id = 0
         rels_by_source = {"/": set()}
+        part_names = set(archive.namelist())
 
         for target, annotations in self.annotations.items():
             for annotation in annotations:
@@ -161,6 +169,8 @@ class Annotations:
                 source = ""
             root = xml.etree.ElementTree.Element(f"{{{RELS_NAMESPACE}}}Relationships")
             for target, namespace in annotations:
+                if target not in part_names:
+                    continue  # Don't point at parts that weren't written.
                 xml.etree.ElementTree.SubElement(
                     root,
                     f"{{{RELS_NAMESPACE}}}Relationship",
@@ -193,16 +203,24 @@ class Annotations:
                     },
                 )
                 current_id += 1
-                xml.etree.ElementTree.SubElement(
-                    root,
-                    f"{{{RELS_NAMESPACE}}}Relationship",
-                    attrib={
-                        f"{{{RELS_NAMESPACE}}}Id": f"rel{current_id}",
-                        f"{{{RELS_NAMESPACE}}}Target": "/Metadata/thumbnail.png",
-                        f"{{{RELS_NAMESPACE}}}Type": THUMBNAIL_REL,
-                    },
-                )
-                current_id += 1
+                # Only reference the thumbnail if one was actually written
+                # (and not already referenced by a preserved annotation).
+                if (
+                    THUMBNAIL_LOCATION in part_names
+                    and (THUMBNAIL_LOCATION, THUMBNAIL_REL) not in annotations
+                ):
+                    xml.etree.ElementTree.SubElement(
+                        root,
+                        f"{{{RELS_NAMESPACE}}}Relationship",
+                        attrib={
+                            f"{{{RELS_NAMESPACE}}}Id": f"rel{current_id}",
+                            f"{{{RELS_NAMESPACE}}}Target": f"/{THUMBNAIL_LOCATION}",
+                            f"{{{RELS_NAMESPACE}}}Type": THUMBNAIL_REL,
+                        },
+                    )
+                    current_id += 1
+            elif len(root) == 0:
+                continue  # Every relationship from this source was dropped.
 
             document = xml.etree.ElementTree.ElementTree(root)
             xml.etree.ElementTree.indent(document)
@@ -259,7 +277,12 @@ class Annotations:
                 },
             )
 
+        part_names = set(archive.namelist())
         for target, annotations in self.annotations.items():
+            if target not in part_names or target == THUMBNAIL_LOCATION:
+                # Skip parts that weren't written. The thumbnail Override (if
+                # needed) is added below, so don't write it twice.
+                continue
             for annotation in annotations:
                 if type(annotation) is not ContentType:
                     continue
@@ -278,12 +301,12 @@ class Annotations:
         # If the .png extension default is the 3MF texture MIME type, add an
         # explicit Override so Windows Explorer's OPC thumbnail handler
         # recognises the content type as image/png.
-        if most_common.get(".png") != "image/png":
+        if THUMBNAIL_LOCATION in part_names and most_common.get(".png") != "image/png":
             xml.etree.ElementTree.SubElement(
                 root,
                 f"{{{CONTENT_TYPES_NAMESPACE}}}Override",
                 attrib={
-                    f"{{{CONTENT_TYPES_NAMESPACE}}}PartName": "/Metadata/thumbnail.png",
+                    f"{{{CONTENT_TYPES_NAMESPACE}}}PartName": f"/{THUMBNAIL_LOCATION}",
                     f"{{{CONTENT_TYPES_NAMESPACE}}}ContentType": "image/png",
                 },
             )

@@ -146,9 +146,35 @@ class ThreeMFPreferences(bpy.types.AddonPreferences):
     )
 
     # Export behavior settings
+    default_use_selection: bpy.props.BoolProperty(
+        name="Selection Only",
+        description="Export selected objects only",
+        default=False,
+    )
+
     default_export_hidden: bpy.props.BoolProperty(
         name="Include Hidden Objects",
         description="Include viewport-hidden objects in exports. When off, hidden objects are skipped",
+        default=False,
+    )
+
+    default_include_disabled: bpy.props.BoolProperty(
+        name="Include Disabled Objects",
+        description="Include objects disabled for rendering (camera icon) and objects in excluded collections",
+        default=False,
+    )
+
+    default_use_components: bpy.props.BoolProperty(
+        name="Use Components",
+        description="Export linked duplicates (Alt+D) as component instances for smaller file sizes",
+        default=True,
+    )
+
+    default_flatten_hierarchy: bpy.props.BoolProperty(
+        name="Flatten Hierarchy",
+        description="Write child meshes directly as top-level build items instead of "
+        "using component containers. Some printing services reject files that use "
+        "3MF component references",
         default=False,
     )
 
@@ -158,10 +184,34 @@ class ThreeMFPreferences(bpy.types.AddonPreferences):
         default=True,
     )
 
+    default_export_location: bpy.props.EnumProperty(
+        name="Export Location",
+        description="Default placement of exported objects in the 3MF file",
+        items=[
+            (
+                "CENTER",
+                "Center and Drop to Bed",
+                "Center objects on the origin in X and Y, and move them down so the lowest point is at Z=0",
+            ),
+            ("KEEP", "Keep Original", "Keep object positions from the Blender scene"),
+        ],
+        default="CENTER",
+    )
+
     # Scale settings
     default_global_scale: bpy.props.FloatProperty(
         name="Global Scale",
-        description="Scale factor applied during import and export. Use 0.001 to convert mm to m",
+        description="Scale factor applied during export, on top of automatic unit conversion",
+        default=1.0,
+        soft_min=0.001,
+        soft_max=1000.0,
+        min=1e-6,
+        max=1e6,
+    )
+
+    default_import_global_scale: bpy.props.FloatProperty(
+        name="Global Scale",
+        description="Scale factor applied during import, on top of automatic unit conversion",
         default=1.0,
         soft_min=0.001,
         soft_max=1000.0,
@@ -232,10 +282,16 @@ class ThreeMFPreferences(bpy.types.AddonPreferences):
         default="KEEP",
     )
 
-    default_auto_smooth: bpy.props.BoolProperty(
-        name="Smooth by Angle",
-        description="Apply Smooth by Angle modifier to imported objects by default",
-        default=False,
+    default_shading: bpy.props.EnumProperty(
+        name="Shading",
+        description="Default shading for imported objects",
+        items=[
+            ("SMOOTH", "Smooth", "Smooth shading on all faces"),
+            ("FLAT", "Flat", "Flat shading on all faces, showing every facet"),
+            ("AUTO", "Smooth by Angle",
+             "Add a Smooth by Angle modifier: smooth, except for edges sharper than the angle"),
+        ],
+        default="SMOOTH",
     )
 
     default_auto_smooth_angle: bpy.props.FloatProperty(
@@ -320,6 +376,16 @@ class ThreeMFPreferences(bpy.types.AddonPreferences):
         default="AUTO",
     )
 
+    default_mmu_slicer_format: bpy.props.EnumProperty(
+        name="Slicer Format",
+        description="Default target slicer format for multi-material export",
+        items=[
+            ("ORCA", "Orca Slicer / BambuStudio", "Use Production Extension with paint_color attributes"),
+            ("PRUSA", "PrusaSlicer / SuperSlicer", "Use mmu_segmentation attributes"),
+        ],
+        default="ORCA",
+    )
+
     default_subdivision_depth: bpy.props.IntProperty(
         name="Subdivision Depth",
         description=(
@@ -363,6 +429,16 @@ class ThreeMFPreferences(bpy.types.AddonPreferences):
         step=64,
     )
 
+    default_strip_identifying_data: bpy.props.BoolProperty(
+        name="Strip Names & Metadata",
+        description=(
+            "Leave out object, material and texture names, part numbers, metadata, the thumbnail, "
+            "timestamps, and data carried over from imported 3MF files. Geometry, colors, textures "
+            "and placement are unchanged. Use when sharing parts whose names or origin are sensitive"
+        ),
+        default=False,
+    )
+
     # ---- Rating nudge tracking (not shown in prefs UI) ----
     export_count: bpy.props.IntProperty(
         name="Export Count",
@@ -393,50 +469,91 @@ class ThreeMFPreferences(bpy.types.AddonPreferences):
         elif self.pref_tab == "ADVANCED":
             self._draw_advanced(layout)
 
+    # The Export and Import tabs mirror the layout of the export and import
+    # dialogs (same grouping, labels and widgets), so each default is easy to
+    # find next to the option it sets.
+
     def _draw_export(self, layout):
-        col = layout.column(align=True)
-        col.label(text="Material Export Mode:", icon="COLORSET_01_VEC")
-        col.prop(self, "default_multi_material_export", text="")
-        if self.default_multi_material_export in ("PAINT", "AUTO"):
-            col.prop(self, "default_subdivision_depth")
-        col.separator()
-        col.prop(self, "default_export_hidden", icon="HIDE_OFF")
-        col.prop(self, "default_apply_modifiers", icon="MODIFIER")
-        col.separator()
-        col.prop(self, "default_coordinate_precision")
-        col.prop(self, "default_global_scale")
-        col.separator()
-        col.prop(self, "default_compression_level")
-        col.separator()
-        col.label(text="Thumbnail:", icon="IMAGE_DATA")
-        col.prop(self, "default_thumbnail_mode")
-        if self.default_thumbnail_mode == "AUTO":
-            col.prop(self, "default_thumbnail_resolution")
+        """Mirror the layout of ``Export3MF.draw()``."""
+        layout.use_property_split = True
+        layout.use_property_decorate = False
+
+        # --- Multi-Color Printing ---
+        header, body = layout.panel("THREEMF_prefs_export_multi_color", default_closed=False)
+        header.label(text="Multi-Color Printing", icon="COLORSET_01_VEC")
+        if body:
+            body.use_property_split = False
+            body.prop(self, "default_multi_material_export")
+            if self.default_multi_material_export in ("PAINT", "AUTO"):
+                body.prop(self, "default_mmu_slicer_format", text="Slicer")
+                body.prop(self, "default_subdivision_depth")
+
+        # --- Geometry ---
+        header, body = layout.panel("THREEMF_prefs_export_geometry", default_closed=False)
+        header.label(text="Geometry", icon="MESH_DATA")
+        if body:
+            col = body.column(align=True)
+            col.prop(self, "default_use_selection")
+            col.prop(self, "default_export_hidden", text="Include Hidden")
+            col.prop(self, "default_include_disabled", text="Include Disabled")
+            col.prop(self, "default_apply_modifiers")
+            col.prop(self, "default_use_components")
+            col.prop(self, "default_flatten_hierarchy")
+            col.separator()
+            col.prop(self, "default_export_location", text="Location")
+            col.prop(self, "default_global_scale", text="Scale")
+            col.prop(self, "default_coordinate_precision", text="Precision")
+
+        # --- Archive ---
+        header, body = layout.panel("THREEMF_prefs_export_archive", default_closed=False)
+        header.label(text="Archive", icon="PACKAGE")
+        if body:
+            body.prop(self, "default_compression_level", text="Compression")
+            body.prop(self, "default_strip_identifying_data")
+            body.separator()
+            thumb = body.column()
+            thumb.active = not self.default_strip_identifying_data
+            thumb.label(text="Thumbnail", icon="IMAGE_DATA")
+            thumb.use_property_split = False
+            thumb.row().prop(self, "default_thumbnail_mode", expand=True)
+            if self.default_thumbnail_mode == "AUTO":
+                thumb.use_property_split = True
+                thumb.prop(self, "default_thumbnail_resolution", text="Resolution")
 
     def _draw_import(self, layout):
-        col = layout.column(align=True)
-        col.label(text="Scene Unit:", icon="DRIVER_DISTANCE")
-        col.prop(self, "default_scene_unit", text="")
-        col.separator()
-        col.prop(self, "default_import_materials", icon="MATERIAL")
-        col.prop(self, "default_reuse_materials", icon="LINKED")
-        col.separator()
-        col.label(text="Placement:", icon="OBJECT_ORIGIN")
-        col.prop(self, "default_import_location")
+        """Mirror the layout of ``Import3MF.draw()``."""
+        layout.prop(self, "default_scene_unit")
+        layout.prop(self, "default_import_global_scale", text="Scale Multiplier")
+        layout.separator()
+
+        box = layout.box()
+        box.label(text="Import Options:", icon="IMPORT")
+        box.prop(self, "default_import_materials", text="Material Mode")
+        box.prop(self, "default_reuse_materials")
+
+        layout.separator()
+        placement_box = layout.box()
+        placement_box.label(text="Placement:", icon="OBJECT_ORIGIN")
+        placement_box.prop(self, "default_import_location", text="Location")
         if self.default_import_location == "GRID":
-            col.prop(self, "default_grid_spacing")
-        col.prop(self, "default_origin_to_geometry")
-        col.separator()
-        col.label(text="Normals:", icon="MOD_SMOOTH")
-        col.prop(self, "default_auto_smooth")
-        if self.default_auto_smooth:
-            col.prop(self, "default_auto_smooth_angle")
+            placement_box.prop(self, "default_grid_spacing")
+        placement_box.prop(self, "default_origin_to_geometry")
+
+        layout.separator()
+        smooth_box = layout.box()
+        smooth_box.label(text="Normals:", icon="MOD_SMOOTH")
+        smooth_box.prop(self, "default_shading")
+        if self.default_shading == "AUTO":
+            smooth_box.prop(self, "default_auto_smooth_angle")
+
+        # Only relevant for MMU Paint, as in the import dialog.
         if self.default_import_materials == "PAINT":
-            col.separator()
-            col.label(text="MMU Paint:", icon="BRUSH_DATA")
-            col.prop(self, "default_paint_uv_method")
-            col.prop(self, "default_paint_texture_size")
-            col.prop(self, "default_shared_paint_texture")
+            layout.separator()
+            adv_box = layout.box()
+            adv_box.label(text="Advanced Settings", icon="BRUSH_DATA")
+            adv_box.prop(self, "default_paint_uv_method")
+            adv_box.prop(self, "default_paint_texture_size")
+            adv_box.prop(self, "default_shared_paint_texture")
 
     def _draw_advanced(self, layout):
         from .slicer_profiles import list_profiles

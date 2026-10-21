@@ -57,6 +57,7 @@ from .materials import (
     write_passthrough_textures_to_archive,
 )
 from .thumbnail import write_thumbnail
+from .privacy import strip_model_xml
 from .triangle_sets import write_triangle_sets
 
 if TYPE_CHECKING:
@@ -432,6 +433,9 @@ class StandardExporter(BaseExporter):
         # passthrough pipelines, then write them once at the end to avoid
         # each call overwriting the previous rels file.
         all_texture_rels = {}
+        # With strip_identifying_data, texture files get generic names; shared
+        # by both texture passes so an image keeps one name.
+        generic_texture_names = {} if ctx.options.strip_identifying_data else None
 
         # Detect PBR textured materials FIRST — these use pbmetallictexturedisplayproperties
         pbr_textured_materials = detect_pbr_textured_materials(all_mesh_objects)
@@ -446,7 +450,7 @@ class StandardExporter(BaseExporter):
                 ctx.extension_manager.activate(MATERIALS_EXTENSION.namespace)
 
                 pbr_image_to_path = write_pbr_textures_to_archive(
-                    archive, pbr_textured_materials
+                    archive, pbr_textured_materials, generic_texture_names
                 )
 
                 if pbr_image_to_path:
@@ -478,7 +482,7 @@ class StandardExporter(BaseExporter):
             ctx.extension_manager.activate(MATERIALS_EXTENSION.namespace)
 
             image_to_path = write_textures_to_archive(
-                archive, textured_materials
+                archive, textured_materials, generic_texture_names
             )
             all_texture_rels.update(image_to_path)
 
@@ -550,13 +554,16 @@ class StandardExporter(BaseExporter):
         if required_ext_string:
             root.set("requiredextensions", required_ext_string)
 
+        if ctx.options.strip_identifying_data:
+            strip_model_xml(root)
+
         ctx._progress_update(95, "Writing model XML...")
         _t_xml = time.perf_counter()
         with archive.open(MODEL_LOCATION, "w", force_zip64=True) as f:
             _stream_model_to_file(f, root)
         timing_debug("XML serialise + write to archive", (time.perf_counter() - _t_xml) * 1000)
 
-        write_core_properties(archive)
+        write_core_properties(archive, include_timestamps=not ctx.options.strip_identifying_data)
         write_thumbnail(archive, ctx, list(blender_objects))
 
         ctx._progress_update(100, "Finalizing export...")
@@ -601,7 +608,8 @@ class StandardExporter(BaseExporter):
         """
         ctx = self.ctx
         transformation = mathutils.Matrix.Scale(global_scale, 4)
-        transformation = self._compute_centering_offset(blender_objects, transformation) @ transformation
+        if ctx.options.export_location == "CENTER":
+            transformation = self._compute_centering_offset(blender_objects, transformation) @ transformation
 
         # Detect linked duplicates if component optimization is enabled
         component_groups = {}

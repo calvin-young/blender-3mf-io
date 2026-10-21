@@ -883,7 +883,16 @@ def set_object_origin(
         bpy.ops.object.mode_set(mode="OBJECT")
 
     if origin_mode == "CENTER":
-        bpy.ops.object.origin_set(type="ORIGIN_GEOMETRY", center="BOUNDS")
+        # Limit the operator to this object.  Objects imported earlier stay
+        # selected, and origin_set acts on every selected object, which made
+        # importing N objects cost O(N²).
+        with bpy.context.temp_override(
+            active_object=blender_object,
+            object=blender_object,
+            selected_objects=[blender_object],
+            selected_editable_objects=[blender_object],
+        ):
+            bpy.ops.object.origin_set(type="ORIGIN_GEOMETRY", center="BOUNDS")
     elif origin_mode == "BOTTOM":
         bbox = blender_object.bound_box
         min_z = min(v[2] for v in bbox)

@@ -71,10 +71,21 @@ def read_vertices(
     :param object_node: An ``<object>`` element from the model file.
     :return: List of ``(x, y, z)`` tuples.
     """
-    result: List[Tuple[float, float, float]] = []
-    for vertex in object_node.iterfind(
+    vertex_nodes = object_node.findall(
         "./3mf:mesh/3mf:vertices/3mf:vertex", MODEL_NAMESPACES
-    ):
+    )
+    # Fast path for well-formed files.  Any missing or bad coordinate falls
+    # through to the per-vertex loop below, which handles it.
+    try:
+        return [
+            (float(a["x"]), float(a["y"]), float(a["z"]))
+            for a in (vertex.attrib for vertex in vertex_nodes)
+        ]
+    except (KeyError, ValueError, TypeError):
+        pass
+
+    result: List[Tuple[float, float, float]] = []
+    for vertex in vertex_nodes:
         attrib = vertex.attrib
         try:
             result.append((
