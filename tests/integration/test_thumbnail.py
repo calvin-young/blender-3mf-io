@@ -24,6 +24,14 @@ def _has_thumbnail(archive_path: str) -> bool:
         return "Metadata/thumbnail.png" in zf.namelist()
 
 
+def _references_thumbnail(archive_path: str) -> bool:
+    """Return True if the OPC parts (.rels / content types) mention the thumbnail."""
+    with zipfile.ZipFile(archive_path, "r") as zf:
+        rels = zf.read("_rels/.rels").decode("utf-8")
+        content_types = zf.read("[Content_Types].xml").decode("utf-8")
+    return "Metadata/thumbnail.png" in rels or "Metadata/thumbnail.png" in content_types
+
+
 def _read_thumbnail_bytes(archive_path: str) -> bytes:
     """Read the raw thumbnail PNG bytes from the archive."""
     with zipfile.ZipFile(archive_path, "r") as zf:
@@ -58,7 +66,9 @@ class TestThumbnailOperator(Blender3mfTestCase):
         self.assertIn("FINISHED", result)
         self.assertTrue(self.temp_file.exists())
         # Background mode has no OpenGL context, so thumbnail is skipped.
-        # The export should still succeed.
+        # The export should still succeed, without a dangling relationship.
+        self.assertFalse(_has_thumbnail(str(self.temp_file)))
+        self.assertFalse(_references_thumbnail(str(self.temp_file)))
 
     def test_none_mode_no_thumbnail(self):
         """NONE mode should produce a valid archive with no thumbnail."""
@@ -69,6 +79,7 @@ class TestThumbnailOperator(Blender3mfTestCase):
         )
         self.assertIn("FINISHED", result)
         self.assertFalse(_has_thumbnail(str(self.temp_file)))
+        self.assertFalse(_references_thumbnail(str(self.temp_file)))
 
     def test_custom_mode_with_blend_image(self):
         """CUSTOM mode using a bpy.data.images entry writes a thumbnail."""
@@ -86,6 +97,7 @@ class TestThumbnailOperator(Blender3mfTestCase):
         )
         self.assertIn("FINISHED", result)
         self.assertTrue(_has_thumbnail(str(self.temp_file)))
+        self.assertTrue(_references_thumbnail(str(self.temp_file)))
 
         # Verify it's a valid PNG.
         data = _read_thumbnail_bytes(str(self.temp_file))
@@ -106,6 +118,7 @@ class TestThumbnailAPI(Blender3mfTestCase):
         result = export_3mf(str(self.temp_file), thumbnail_mode="NONE")
         self.assertEqual(result.status, "FINISHED")
         self.assertFalse(_has_thumbnail(str(self.temp_file)))
+        self.assertFalse(_references_thumbnail(str(self.temp_file)))
 
     def test_api_auto_background(self):
         """API: AUTO in background gracefully skips thumbnail render."""
@@ -171,6 +184,7 @@ class TestThumbnailAPI(Blender3mfTestCase):
         self.assertEqual(result.status, "FINISHED")
         # Thumbnail missing, but export itself succeeds.
         self.assertFalse(_has_thumbnail(str(self.temp_file)))
+        self.assertFalse(_references_thumbnail(str(self.temp_file)))
 
     def test_api_default_mode_is_auto(self):
         """API: default thumbnail_mode should be AUTO."""

@@ -70,6 +70,9 @@ def write_thumbnail(
     if mode == "NONE":
         debug("Thumbnail generation disabled by user")
         return
+    if ctx is not None and ctx.options.strip_identifying_data:
+        debug("Thumbnail left out (strip identifying data)")
+        return
 
     try:
         if mode == "CUSTOM" and custom_path:
@@ -78,6 +81,8 @@ def write_thumbnail(
             _write_auto_thumbnail(archive, resolution, blender_objects)
     except Exception as e:
         warn(f"Failed to write thumbnail: {e}")
+        if ctx is not None:
+            ctx.safe_report({"WARNING"}, f"Thumbnail was not written: {e}")
 
 
 # ───────────────────────────────────────────────────────────────────────────
@@ -100,7 +105,8 @@ def _write_custom_thumbnail(
 
     if img is None:
         # Fallback: treat as file path (API callers may pass a path).
-        abs_path = bpy.path.abspath(image_ref)
+        # Strip quotes left by pasting a path (e.g. Windows "Copy as path").
+        abs_path = bpy.path.abspath(image_ref.strip().strip('"'))
         if not os.path.isfile(abs_path):
             warn(f"Custom thumbnail image not found: {image_ref}")
             return
@@ -157,10 +163,12 @@ def _write_auto_thumbnail(
         return
 
     # Find a 3D viewport ---------------------------------------------------
+    view3d_window = None
     view3d_area = None
     for window in bpy.context.window_manager.windows:
         for area in window.screen.areas:
             if area.type == "VIEW_3D":
+                view3d_window = window
                 view3d_area = area
                 break
         if view3d_area:
@@ -185,6 +193,14 @@ def _write_auto_thumbnail(
             break
     if not space:
         return
+
+    # Include children of exported parents (e.g. meshes under an Empty),
+    # since they are exported along with their parent.
+    if blender_objects is not None:
+        expanded = list(blender_objects)
+        for obj in blender_objects:
+            expanded.extend(obj.children_recursive)
+        blender_objects = expanded
 
     # Compute bounding box of exported objects -----------------------------
     bbox_min, bbox_max = _compute_world_bbox(blender_objects)
@@ -228,19 +244,22 @@ def _write_auto_thumbnail(
     orig_filepath = scene.render.filepath
     orig_alpha_mode = scene.render.image_settings.color_mode
 
-    # Temporarily hide all objects NOT in the export set so only the
-    # exported meshes appear in the thumbnail (no reference spheres,
-    # lights, cameras, empties, etc.).
     export_set = set(id(o) for o in blender_objects) if blender_objects else set()
-    hidden_objects = []  # list of (obj, original_hide_get) to restore
-    if export_set:
-        for obj in scene.objects:
-            if id(obj) not in export_set and not obj.hide_get():
-                obj.hide_set(True)
-                hidden_objects.append(obj)
+    hidden_objects = []  # objects hidden below, unhidden again afterwards
 
     tmp_path = ""
     try:
+        # Temporarily hide all objects NOT in the export set so only the
+        # exported meshes appear in the thumbnail (no reference spheres,
+        # lights, cameras, empties, etc.).  Only visible objects need hiding;
+        # hide_get()/hide_set() raise for objects that aren't in the view
+        # layer (e.g. in an excluded collection), visible_get() does not.
+        if export_set:
+            for obj in scene.objects:
+                if id(obj) not in export_set and obj.visible_get():
+                    obj.hide_set(True)
+                    hidden_objects.append(obj)
+
         # Set viewport to our computed camera angle -------------------------
         space.region_3d.view_perspective = "PERSP"
         space.region_3d.view_location = center
@@ -265,6 +284,8 @@ def _write_auto_thumbnail(
 
         # Render OpenGL viewport capture ------------------------------------
         override = bpy.context.copy()
+        override["window"] = view3d_window
+        override["screen"] = view3d_window.screen
         override["area"] = view3d_area
         override["region"] = region
 

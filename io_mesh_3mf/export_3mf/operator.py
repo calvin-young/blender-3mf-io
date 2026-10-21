@@ -221,16 +221,19 @@ class EXPORT_OT_threemf_preset(AddPresetBase, bpy.types.Operator):
         "op.export_hidden",
         "op.include_disabled",
         "op.global_scale",
+        "op.export_location",
         "op.use_mesh_modifiers",
         "op.coordinate_precision",
         "op.compression_level",
         "op.use_orca_format",
         "op.use_components",
+        "op.flatten_hierarchy",
         "op.mmu_slicer_format",
         "op.slicer_profile",
         "op.subdivision_depth",
         "op.thumbnail_mode",
         "op.thumbnail_resolution",
+        "op.strip_identifying_data",
     ]
 
 
@@ -336,6 +339,25 @@ class Export3MF(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
     )
     global_scale: bpy.props.FloatProperty(
         name="Scale", default=1.0, soft_min=0.001, soft_max=1000.0, min=1e-6, max=1e6
+    )
+    export_location: bpy.props.EnumProperty(
+        name="Location",
+        description="Where to place exported objects in the 3MF file",
+        items=[
+            (
+                "CENTER",
+                "Center and Drop to Bed",
+                "Center objects on the origin in X and Y, and move them down so the "
+                "lowest point is at Z=0, ready to print on an FDM slicer's bed",
+            ),
+            (
+                "KEEP",
+                "Keep Original",
+                "Keep object positions from the Blender scene. Use when placement matters, "
+                "e.g. pre-arranged build volumes or parts that should line up with other files",
+            ),
+        ],
+        default="CENTER",
     )
     use_mesh_modifiers: bpy.props.BoolProperty(
         name="Apply Modifiers",
@@ -481,11 +503,25 @@ class Export3MF(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
         items=_thumbnail_image_items,
     )
 
+    # No FILE_PATH subtype: its browse button can't work here, because Blender
+    # can't open a second file browser while the export file browser is open.
+    strip_identifying_data: bpy.props.BoolProperty(
+        name="Strip Names & Metadata",
+        description=(
+            "Leave out object, material and texture names, part numbers, metadata, the thumbnail, "
+            "timestamps, and data carried over from imported 3MF files. Geometry, colors, textures "
+            "and placement are unchanged. Use when sharing parts whose names or origin are sensitive"
+        ),
+        default=False,
+    )
+
     thumbnail_image_path: bpy.props.StringProperty(
         name="Path",
-        description="Path to a custom image file to use as the thumbnail",
+        description=(
+            "Full path to a custom image file to use as the thumbnail. "
+            "Paste the path here, or open the image in Blender first and pick it from the list"
+        ),
         default="",
-        subtype="FILE_PATH",
     )
 
     def invoke(self, context, event):
@@ -494,13 +530,20 @@ class Export3MF(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
         if prefs and prefs.preferences:
             self.coordinate_precision = prefs.preferences.default_coordinate_precision
             self.compression_level = prefs.preferences.default_compression_level
+            self.strip_identifying_data = prefs.preferences.default_strip_identifying_data
             self.export_hidden = prefs.preferences.default_export_hidden
             self.use_mesh_modifiers = prefs.preferences.default_apply_modifiers
             self.global_scale = prefs.preferences.default_global_scale
+            self.export_location = prefs.preferences.default_export_location
             self.use_orca_format = prefs.preferences.default_multi_material_export
             self.subdivision_depth = prefs.preferences.default_subdivision_depth
             self.thumbnail_mode = prefs.preferences.default_thumbnail_mode
             self.thumbnail_resolution = prefs.preferences.default_thumbnail_resolution
+            self.use_selection = prefs.preferences.default_use_selection
+            self.include_disabled = prefs.preferences.default_include_disabled
+            self.use_components = prefs.preferences.default_use_components
+            self.flatten_hierarchy = prefs.preferences.default_flatten_hierarchy
+            self.mmu_slicer_format = prefs.preferences.default_mmu_slicer_format
         self.report({"INFO"}, "Exporting, please wait...")
         return super().invoke(context, event)
 
@@ -559,6 +602,7 @@ class Export3MF(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
             col.prop(self, "use_components")
             col.prop(self, "flatten_hierarchy")
             col.separator()
+            col.prop(self, "export_location")
             col.prop(self, "global_scale")
             col.prop(self, "coordinate_precision")
 
@@ -567,17 +611,21 @@ class Export3MF(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
         header.label(text="Archive", icon="PACKAGE")
         if body:
             body.prop(self, "compression_level")
+            body.prop(self, "strip_identifying_data")
             body.separator()
-            body.label(text="Thumbnail", icon="IMAGE_DATA")
-            body.use_property_split = False
-            body.row().prop(self, "thumbnail_mode", expand=True)
+            # Stripping leaves out the thumbnail regardless of these settings.
+            thumb = body.column()
+            thumb.active = not self.strip_identifying_data
+            thumb.label(text="Thumbnail", icon="IMAGE_DATA")
+            thumb.use_property_split = False
+            thumb.row().prop(self, "thumbnail_mode", expand=True)
             if self.thumbnail_mode == "AUTO":
-                body.use_property_split = True
-                body.prop(self, "thumbnail_resolution")
+                thumb.use_property_split = True
+                thumb.prop(self, "thumbnail_resolution")
             elif self.thumbnail_mode == "CUSTOM":
-                body.prop(self, "thumbnail_image", text="")
+                thumb.prop(self, "thumbnail_image", text="")
                 if self.thumbnail_image == "__CUSTOM_PATH__":
-                    body.prop(self, "thumbnail_image_path", text="")
+                    thumb.prop(self, "thumbnail_image_path", text="")
 
     def safe_report(self, level: Set[str], message: str) -> None:
         """
@@ -596,6 +644,7 @@ class Export3MF(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
             export_hidden=self.export_hidden,
             include_disabled=self.include_disabled,
             global_scale=self.global_scale,
+            export_location=self.export_location,
             use_mesh_modifiers=self.use_mesh_modifiers,
             coordinate_precision=self.coordinate_precision,
             compression_level=self.compression_level,
@@ -612,6 +661,7 @@ class Export3MF(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
                 if self.thumbnail_image == "__CUSTOM_PATH__"
                 else self.thumbnail_image
             ),
+            strip_identifying_data=self.strip_identifying_data,
         )
         return ExportContext(
             options=options,
@@ -667,7 +717,10 @@ class Export3MF(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
         ctx._progress_begin(context, "Exporting 3MF...")
 
         try:
-            archive = create_archive(self.filepath, ctx.safe_report, ctx.options.compression_level)
+            archive = create_archive(
+                self.filepath, ctx.safe_report, ctx.options.compression_level,
+                preserve_imported=not ctx.options.strip_identifying_data,
+            )
             if archive is None:
                 return {"CANCELLED"}
 

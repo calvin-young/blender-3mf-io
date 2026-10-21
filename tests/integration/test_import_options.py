@@ -264,6 +264,35 @@ class ImportLocationModeTests(Blender3mfTestCase):
         self.assertGreater(len(bpy.data.objects), 0)
 
 
+class ImportShadingTests(Blender3mfTestCase):
+    """Test the shading option."""
+
+    def _create_export_and_import(self, **import_kwargs):
+        bpy.ops.mesh.primitive_cube_add(size=2.0)
+        bpy.ops.export_mesh.threemf(filepath=str(self.temp_file))
+        self.clean_scene()
+        bpy.ops.import_mesh.threemf(filepath=str(self.temp_file), **import_kwargs)
+        meshes = [o for o in bpy.data.objects if o.type == "MESH"]
+        self.assertEqual(len(meshes), 1)
+        return meshes[0]
+
+    def test_smooth_is_default(self):
+        """Default import produces smooth-shaded faces."""
+        obj = self._create_export_and_import()
+        self.assertTrue(all(p.use_smooth for p in obj.data.polygons))
+
+    def test_flat(self):
+        """FLAT produces flat-shaded faces and no modifier."""
+        obj = self._create_export_and_import(shading="FLAT")
+        self.assertFalse(any(p.use_smooth for p in obj.data.polygons))
+        self.assertEqual(len(obj.modifiers), 0)
+
+    def test_smooth_by_angle_adds_modifier(self):
+        """AUTO adds the Smooth by Angle modifier."""
+        obj = self._create_export_and_import(shading="AUTO")
+        self.assertEqual(len(obj.modifiers), 1)
+
+
 class ImportHiddenObjectTests(Blender3mfTestCase):
     """Test that hidden objects are handled correctly during import."""
 

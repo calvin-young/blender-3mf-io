@@ -289,12 +289,25 @@ def detect_pbr_textured_materials(
     return pbr_materials
 
 
-def write_textures_to_archive(archive: zipfile.ZipFile, textured_materials: Dict[str, Dict]) -> Dict[str, str]:
+def _generic_texture_name(generic_names: Dict[str, str], image_name: str, ext: str) -> str:
+    """Return a generic texture file name for *image_name*, reusing earlier ones."""
+    if image_name not in generic_names:
+        generic_names[image_name] = f"texture_{len(generic_names) + 1}{ext}"
+    return generic_names[image_name]
+
+
+def write_textures_to_archive(
+    archive: zipfile.ZipFile,
+    textured_materials: Dict[str, Dict],
+    generic_names: Optional[Dict[str, str]] = None,
+) -> Dict[str, str]:
     """
     Write texture images to the 3MF archive.
 
     :param archive: The 3MF zip archive
     :param textured_materials: Dict from detect_textured_materials()
+    :param generic_names: When given, name texture files ``texture_N`` instead of
+        after the image, recording the names in this dict (image name -> file name).
     :return: Dict mapping image name -> archive path (e.g. "/3D/Textures/image.png")
     """
     image_to_path = {}
@@ -321,7 +334,10 @@ def write_textures_to_archive(archive: zipfile.ZipFile, textured_materials: Dict
         # Use original archive path when available (round-trip preservation).
         # This keeps the texture2d path, relationships, and content types
         # consistent with what the original 3MF file used.
-        if original_path:
+        if generic_names is not None:
+            archive_path = f"{texture_folder}/{_generic_texture_name(generic_names, image_name, ext)}"
+            full_archive_path = f"/{archive_path}"
+        elif original_path:
             archive_path = original_path.lstrip("/")
             full_archive_path = f"/{archive_path}"
         else:
@@ -549,7 +565,11 @@ def get_or_create_tex2coord(texture_group_data: Dict, u: float, v: float) -> int
     return index
 
 
-def write_pbr_textures_to_archive(archive: zipfile.ZipFile, pbr_materials: Dict[str, Dict]) -> Dict[str, str]:
+def write_pbr_textures_to_archive(
+    archive: zipfile.ZipFile,
+    pbr_materials: Dict[str, Dict],
+    generic_names: Optional[Dict[str, str]] = None,
+) -> Dict[str, str]:
     """
     Write ALL PBR texture images (base_color, roughness, metallic, normal) to the 3MF archive.
 
@@ -558,6 +578,8 @@ def write_pbr_textures_to_archive(archive: zipfile.ZipFile, pbr_materials: Dict[
 
     :param archive: The 3MF zip archive
     :param pbr_materials: Dict from detect_pbr_textured_materials()
+    :param generic_names: When given, name texture files ``texture_N`` instead of
+        after the image (see :func:`write_textures_to_archive`).
     :return: Dict mapping image name -> archive path
     """
     image_to_path = {}
@@ -589,9 +611,12 @@ def write_pbr_textures_to_archive(archive: zipfile.ZipFile, pbr_materials: Dict[
                     ext = ".jpg"
 
             # Sanitize filename
-            safe_name = "".join(c if c.isalnum() or c in "._-" else "_" for c in image_name)
-            if not safe_name.lower().endswith(ext):
-                safe_name += ext
+            if generic_names is not None:
+                safe_name = _generic_texture_name(generic_names, image_name, ext)
+            else:
+                safe_name = "".join(c if c.isalnum() or c in "._-" else "_" for c in image_name)
+                if not safe_name.lower().endswith(ext):
+                    safe_name += ext
 
             archive_path = f"{texture_folder}/{safe_name}"
             full_archive_path = f"/{archive_path}"
