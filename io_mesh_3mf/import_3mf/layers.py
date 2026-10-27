@@ -173,6 +173,7 @@ def resolve_layered_rows(
     """
     multiprop = ctx.resource_multiproperties[multiprop_id]
     pids = (multiprop.pids or "").split()
+    ctx.used_property_ids.update(pids)  # The layers are represented by the Blender material.
     blends = (multiprop.blendmethods or "").split()
     blends = [(blends[i - 1] if i - 1 < len(blends) else "mix").lower() for i in range(1, len(pids))]
     multis = _multi_indices(ctx, multiprop_id, len(pids))

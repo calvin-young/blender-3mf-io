@@ -281,3 +281,24 @@ class TestHandBuiltLayeredMaterial(LayeredTexturesTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestNoDuplicateTextureGroups(LayeredTexturesTestCase):
+    """Texture groups used by triangles are written once (from the material), unused ones are kept."""
+
+    def test_used_group_written_once(self):
+        resources = """
+    <m:texture2d id="1" path="/3D/Textures/base.png" contenttype="image/png" />
+    <m:texture2dgroup id="3" texid="1">
+      <m:tex2coord u="0" v="0" /><m:tex2coord u="1" v="0" />
+      <m:tex2coord u="1" v="1" /><m:tex2coord u="0" v="1" />
+    </m:texture2dgroup>
+    <m:texture2dgroup id="4" texid="1">
+      <m:tex2coord u="0.5" v="0.5" />
+    </m:texture2dgroup>"""
+        mesh = MESH.format(pid_a=3, pid_b=3, b1=0, b2=2, b3=3)
+        self.import_file(self.write_3mf(resources, mesh, {"3D/Textures/base.png": BASE_PNG}))
+        root, _ = self.export_model()
+        groups = self.resources(root, "texture2dgroup")
+        sizes = sorted(len(g) for g in groups)
+        self.assertEqual(sizes, [1, 4], "used group once (4 coords), unused group kept (1 coord)")

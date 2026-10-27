@@ -230,6 +230,7 @@ def read_triangles(
                 continue
 
             pid = attrib.get("pid", material_pid)
+            ctx.used_property_ids.add(pid)
             p1 = attrib.get("p1")
             p2 = attrib.get("p2")
             p3 = attrib.get("p3")
@@ -388,6 +389,7 @@ def _read_converted_triangles(
         for pid_value in np.unique(pids):
             rows = np.flatnonzero(pids == pid_value)
             pid = material_pid if pid_value < 0 else str(int(pid_value))
+            ctx.used_property_ids.add(pid)
             properties = converted[rows, 4:7]
 
             if pid is not None and pid in ctx.resource_texture_groups:
