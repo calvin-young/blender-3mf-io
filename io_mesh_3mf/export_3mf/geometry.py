@@ -601,6 +601,18 @@ WELL_KNOWN_METADATA = frozenset({
 })
 
 
+def group_metadata_names(metadata: Metadata) -> List[str]:
+    """Names of the entries that belong in an object's or item's ``<metadatagroup>``.
+
+    Leaves out the well-known (model) names, and the add-on's own ``3mf:``
+    entries (part number, object type), which are written as attributes.
+    """
+    return [
+        str(entry.name) for entry in metadata.values()
+        if str(entry.name) not in WELL_KNOWN_METADATA and not str(entry.name).startswith("3mf:")
+    ]
+
+
 def write_metadata(
     node: xml.etree.ElementTree.Element, metadata: Metadata, use_orca_format: str, in_group: bool = False
 ) -> None:
@@ -610,9 +622,10 @@ def write_metadata(
     :param node: The node to add <metadata> tags to.
     :param metadata: The collection of metadata to write to that node.
     :param use_orca_format: Material export mode — affects namespace handling.
-    :param in_group: The node is an object's or item's ``<metadatagroup>``.
-        The well-known names (Title, ...) are left out there: they describe the
-        model, and an object's or item's title is its ``name`` attribute.
+    :param in_group: The node is an object's or item's ``<metadatagroup>``:
+        only write :func:`group_metadata_names`.  The well-known names (Title,
+        ...) describe the model; an object's or item's title is its ``name``
+        attribute.
     """
 
     def attr(name: str) -> str:
@@ -620,8 +633,9 @@ def write_metadata(
             return name
         return f"{{{MODEL_NAMESPACE}}}{name}"
 
+    group_names = set(group_metadata_names(metadata)) if in_group else set()
     for metadata_entry in metadata.values():
-        if in_group and str(metadata_entry.name) in WELL_KNOWN_METADATA:
+        if in_group and str(metadata_entry.name) not in group_names:
             continue
         metadata_node = xml.etree.ElementTree.SubElement(
             node, f"{{{MODEL_NAMESPACE}}}metadata"

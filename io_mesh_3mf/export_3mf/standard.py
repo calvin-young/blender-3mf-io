@@ -41,7 +41,7 @@ from .archive import write_core_properties
 from .components import collect_mesh_objects, detect_linked_duplicates, should_use_components
 from .geometry import (
     write_vertices, write_triangles, write_passthrough_triangles,
-    write_metadata, get_raw_geometry, clear_raw_geometry, WELL_KNOWN_METADATA,
+    write_metadata, get_raw_geometry, clear_raw_geometry, group_metadata_names,
 )
 from .materials import (
     write_materials,
@@ -725,7 +725,7 @@ class StandardExporter(BaseExporter):
                 "3mf:partnumber"
             ].value
             del metadata["3mf:partnumber"]
-        if any(str(entry.name) not in WELL_KNOWN_METADATA for entry in metadata.values()):
+        if group_metadata_names(metadata):
             metadatagroup_element = xml.etree.ElementTree.SubElement(
                 item_element, f"{{{MODEL_NAMESPACE}}}metadatagroup"
             )
@@ -1044,7 +1044,7 @@ class StandardExporter(BaseExporter):
                 if object_type != "model" and object_type != "other":
                     mesh_object_element.attrib[self.attr("type")] = object_type
                 del metadata["3mf:object_type"]
-            if any(str(entry.name) not in WELL_KNOWN_METADATA for entry in metadata.values()):
+            if group_metadata_names(metadata):
                 metadatagroup_element = xml.etree.ElementTree.SubElement(
                     object_element, f"{{{MODEL_NAMESPACE}}}metadatagroup"
                 )
