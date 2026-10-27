@@ -32,14 +32,16 @@ as it did before.  If anything else goes wrong, the whole document is parsed
 with ElementTree.
 """
 
+import os
 import re
-import warnings
+import sys
 import xml.etree.ElementTree
 from typing import IO, Dict, List, Optional, Tuple, TYPE_CHECKING
 
 import numpy as np
 
-from ..common import debug
+from ..common import debug, warn
+from . import threemf_fast_convert as convert
 from ..common.constants import MODEL_NAMESPACE, MATERIAL_NAMESPACE
 
 if TYPE_CHECKING:
@@ -50,78 +52,17 @@ __all__ = [
     "fast_array",
 ]
 
+# Models with less than this much mesh data are converted in Blender's own process.
+_PARALLEL_THRESHOLD = 64 << 20
+_PIECE_SIZE = 16 << 20
+_MAX_WORKERS = 16
+
 # Attribute put on the opening tag of a cut-out block so the element can be
 # found again after parsing.  It's removed before anyone else sees the tree.
 _MARKER = "threemf-fast-block"
 
-_QUOTE = rb"[\"']"
-_NUMBER = rb"\s*[-+.0-9eE]+\s*"
-_INDEX = rb"\s*\d+\s*"
-
-# Characters that make up the numbers.  Everything else becomes a space.
-_KEEP = b"0123456789.-+eE"
-_TO_SPACES = bytes(c if c in _KEEP else 0x20 for c in range(256))
-
 _ROOT_TAG = re.compile(rb"<(?:[\w.-]+:)?model\b[^>]*>")
 _NS_DECLARATION = re.compile(rb"""\sxmlns(?::([\w.-]+))?\s*=\s*(["'])(.*?)\2""")
-
-
-def _attr(name: bytes, value: bytes) -> bytes:
-    return rb"\s+" + name + rb"=" + _QUOTE + value + _QUOTE
-
-
-class _BlockKind:
-    """How to recognise and convert the children of one kind of container element."""
-
-    def __init__(self, container: bytes, child: bytes, attributes: bytes, names: Tuple[bytes, ...],
-                 dtype, columns: Optional[int]):
-        self.container = container
-        self.child = child
-        self.attributes = attributes  # Regex for the attributes in canonical order.
-        self.names = names  # Attribute names, replaced by spaces before converting.
-        self.dtype = dtype
-        self.columns = columns  # Fixed number of values per child, or None if variable.
-
-    def compile(self, prefix: bytes) -> None:
-        """Compile the patterns for children written with the given namespace prefix."""
-        child = re.escape(prefix + self.child)
-        self.open_tag = b"<" + prefix + self.child
-        self.close_tag = b"</" + prefix + self.child + b">"
-        # Finds the first child that isn't in canonical form, if any.
-        self.bad = re.compile(
-            rb"<" + child + rb"\b(?!" + self.attributes + rb"\s*(?:/>|>\s*</" + child + rb"\s*>))"
-        )
-
-
-def _block_kinds() -> Dict[bytes, _BlockKind]:
-    index = _INDEX
-    triangle_attributes = (
-        _attr(b"v1", index) + _attr(b"v2", index) + _attr(b"v3", index)
-        + rb"(?:" + _attr(b"pid", index)
-        + rb"(?:" + _attr(b"p1", index)
-        + rb"(?:" + _attr(b"p2", index) + _attr(b"p3", index) + rb")?)?)?"
-    )
-    return {
-        b"vertices": _BlockKind(
-            b"vertices", b"vertex",
-            _attr(b"x", _NUMBER) + _attr(b"y", _NUMBER) + _attr(b"z", _NUMBER),
-            (b"x=", b"y=", b"z="), np.float64, 3,
-        ),
-        b"triangles": _BlockKind(
-            b"triangles", b"triangle", triangle_attributes,
-            (b"v1=", b"v2=", b"v3=", b"pid=", b"p1=", b"p2=", b"p3="), np.int64, None,
-        ),
-        b"texture2dgroup": _BlockKind(
-            b"texture2dgroup", b"tex2coord",
-            _attr(b"u", _NUMBER) + _attr(b"v", _NUMBER),
-            (b"u=", b"v="), np.float64, 2,
-        ),
-        b"multiproperties": _BlockKind(
-            b"multiproperties", b"multi",
-            _attr(b"pindices", rb"[\d\s]*"),
-            (b"pindices=",), np.int64, None,
-        ),
-    }
 
 
 def _namespace_prefixes(data: bytes) -> Tuple[Dict[bytes, bytes], bytes]:
@@ -136,58 +77,6 @@ def _namespace_prefixes(data: bytes) -> Tuple[Dict[bytes, bytes], bytes]:
         prefixes.setdefault(declaration.group(3), prefix + b":" if prefix else b"")
         declarations.append(declaration.group(0))
     return prefixes, b"".join(declarations)
-
-
-def _to_numbers(block: bytes, kind: _BlockKind, sentinel: bool) -> Optional[np.ndarray]:
-    """Convert the children of a canonical block to a flat array of numbers."""
-    text = block.replace(kind.open_tag, b" -1 " if sentinel else b" ")
-    text = text.replace(kind.close_tag, b" ")
-    for name in kind.names:
-        text = text.replace(name, b" ")
-    text = text.translate(_TO_SPACES)
-    with warnings.catch_warnings():
-        # numpy warns (instead of raising) when it can't read to the end.
-        warnings.simplefilter("error")
-        try:
-            return np.fromstring(text, dtype=kind.dtype, sep=" ")
-        except (ValueError, DeprecationWarning):
-            return None
-
-
-def _convert(block: bytes, kind: _BlockKind) -> Optional[np.ndarray]:
-    """Convert one block, or return None if it isn't in canonical form."""
-    if kind.bad.search(block) is not None:
-        return None
-    count = block.count(kind.open_tag)
-
-    if kind.columns is not None:
-        values = _to_numbers(block, kind, sentinel=False)
-        if values is None or values.size != count * kind.columns:
-            return None
-        return values.reshape(count, kind.columns)
-
-    # Variable number of values per child: a -1 sentinel marks each child.
-    # Indices can't be negative in canonical form, so the sentinel is unambiguous.
-    values = _to_numbers(block, kind, sentinel=True)
-    if values is None:
-        return None
-    starts = np.flatnonzero(values == -1)
-    if starts.size != count or (values.size and (count == 0 or starts[0] != 0)):
-        return None  # Numbers outside the recognised children.
-    lengths = np.diff(np.append(starts, values.size)) - 1
-    width = int(lengths.max()) if count else 0
-    if kind.child == b"triangle":
-        # v1 v2 v3 [pid [p1 [p2 p3]]] -> columns v1 v2 v3 pid p1 p2 p3, -1 if absent.
-        if count and not np.isin(lengths, (3, 4, 5, 7)).all():
-            return None
-        width = 7
-    result = np.full((count, width), -1, dtype=np.int64)
-    for length in np.unique(lengths):
-        rows = lengths == length
-        first = starts[rows] + 1
-        for column in range(int(length)):
-            result[rows, column] = values[first + column]
-    return result
 
 
 def parse_model(ctx: "ImportContext", model_file: IO[bytes]) -> xml.etree.ElementTree.Element:
@@ -215,18 +104,15 @@ def parse_model(ctx: "ImportContext", model_file: IO[bytes]) -> xml.etree.Elemen
 def _parse_split(ctx: "ImportContext", data: bytes) -> Optional[xml.etree.ElementTree.Element]:
     """Parse *data* with the bulky blocks cut out.  Returns None if not applicable."""
     prefixes, declarations = _namespace_prefixes(data)
-    kinds = _block_kinds()
-    allowed = {}  # Container element prefix + name -> kind
+    allowed = {}  # Container element prefix + name -> (container name, prefix)
     core = prefixes.get(MODEL_NAMESPACE.encode())
     if core == b"":  # Core elements in the default namespace, as everyone writes them.
         for name in (b"vertices", b"triangles"):
-            kinds[name].compile(b"")
-            allowed[name] = kinds[name]
+            allowed[name] = (name, b"")
     material = prefixes.get(MATERIAL_NAMESPACE.encode())
     if material is not None:
         for name in (b"texture2dgroup", b"multiproperties"):
-            kinds[name].compile(material)
-            allowed[material + name] = kinds[name]
+            allowed[material + name] = (name, material)
     if not allowed:
         return None
 
@@ -234,7 +120,7 @@ def _parse_split(ctx: "ImportContext", data: bytes) -> Optional[xml.etree.Elemen
         rb"<(" + b"|".join(re.escape(name) for name in allowed) + rb")(\s[^>]*)?>"
     )
     pieces: List[bytes] = []
-    blocks: List[Tuple[_BlockKind, int, int]] = []
+    blocks: List[Tuple[Tuple[bytes, bytes], int, int]] = []
     position = 0
     for match in container.finditer(data):
         if match.start() < position:
@@ -266,21 +152,95 @@ def _parse_split(ctx: "ImportContext", data: bytes) -> Optional[xml.etree.Elemen
         return None
 
     converted = rehydrated = 0
-    for index, (kind, start, end) in enumerate(blocks):
-        block = data[start:end]
-        array = _convert(block, kind)
+    for index, array in enumerate(_convert_blocks(data, blocks)):
+        start, end = blocks[index][1:]
         if array is not None:
             ctx.fast_arrays[elements[index]] = array
             converted += 1
         else:
             # Not in canonical form: give the element its children back.
             wrapper = xml.etree.ElementTree.fromstring(
-                b"<threemf-wrapper" + declarations + b">" + block + b"</threemf-wrapper>"
+                b"<threemf-wrapper" + declarations + b">" + data[start:end] + b"</threemf-wrapper>"
             )
             elements[index].extend(list(wrapper))
             rehydrated += 1
     debug(f"Fast model parsing: {converted} blocks converted, {rehydrated} parsed element by element")
     return root
+
+
+def _convert_blocks(data: bytes, blocks) -> List[Optional[np.ndarray]]:
+    """Convert every block, in worker processes for large models.
+
+    Large blocks are split into pieces at child elements, so one huge mesh is
+    spread over the workers too.
+    """
+    tasks = []  # (block index, container, prefix, start, end)
+    for index, ((container, prefix), start, end) in enumerate(blocks):
+        open_tag = convert.block_kind(container, prefix).open_tag
+        for piece_start, piece_end in convert.chunk_bounds(memoryview(data)[start:end], open_tag, _PIECE_SIZE):
+            tasks.append((index, container, prefix, start + piece_start, start + piece_end))
+
+    results = None
+    total = sum(end - start for _, _, _, start, end in tasks)
+    workers = min(len(tasks), _worker_count())
+    if workers > 1 and total >= _PARALLEL_THRESHOLD:
+        try:
+            results = _convert_in_workers(data, tasks, workers)
+        except Exception as e:  # Anything going wrong with processes: do it here instead.
+            warn(f"Converting the model in worker processes failed ({e}); continuing in Blender")
+            results = None
+    if results is None:
+        results = [convert.convert_piece(container, prefix, data[start:end])
+                   for _, container, prefix, start, end in tasks]
+
+    pieces: List[List] = [[] for _ in blocks]
+    for (index, *_), result in zip(tasks, results):
+        pieces[index].append(result)
+    return [convert.join_pieces(arrays, blocks[index][0][0]) for index, arrays in enumerate(pieces)]
+
+
+def _worker_count() -> int:
+    try:
+        cpus = len(os.sched_getaffinity(0))  # CPUs this process may use (Linux)
+    except AttributeError:
+        cpus = os.cpu_count() or 1
+    return max(1, min(cpus - 1, _MAX_WORKERS))
+
+
+def _convert_in_workers(data: bytes, tasks, workers: int) -> List[Optional[np.ndarray]]:
+    """Convert pieces in separate processes (Python runs one thread at a time per process)."""
+    import concurrent.futures
+    import importlib.util
+    import multiprocessing
+
+    # Workers are fresh Python processes ("spawn" works the same on every
+    # platform and is safe in a multithreaded program like Blender).  They
+    # import the converter as a top-level module, without Blender or the add-on.
+    directory = os.path.dirname(os.path.abspath(__file__))
+    name = "threemf_fast_convert"
+    module = sys.modules.get(name)
+    if module is None:
+        spec = importlib.util.spec_from_file_location(name, os.path.join(directory, name + ".py"))
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[name] = module
+        spec.loader.exec_module(module)
+    python_path = os.environ.get("PYTHONPATH")
+    os.environ["PYTHONPATH"] = directory + (os.pathsep + python_path if python_path else "")
+    try:
+        context = multiprocessing.get_context("spawn")
+        with concurrent.futures.ProcessPoolExecutor(workers, mp_context=context) as pool:
+            # Largest first, so the workers finish at about the same time.
+            order = sorted(range(len(tasks)), key=lambda i: tasks[i][4] - tasks[i][3], reverse=True)
+            futures = {
+                i: pool.submit(module.convert_piece, tasks[i][1], tasks[i][2], data[tasks[i][3]:tasks[i][4]])
+                for i in order
+            }
+            return [futures[i].result() for i in range(len(tasks))]
+    finally:
+        if python_path is None:
+            os.environ.pop("PYTHONPATH", None)
+        else:
+            os.environ["PYTHONPATH"] = python_path
 
 
 def fast_array(ctx: "ImportContext", element: Optional[xml.etree.ElementTree.Element]) -> Optional[np.ndarray]:
