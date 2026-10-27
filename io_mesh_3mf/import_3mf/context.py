@@ -96,6 +96,8 @@ class ImportContext:
 
     # --- Component instance cache (for linked-duplicate detection) ----------
     component_instance_cache: Dict[str, Tuple[object, int]] = field(default_factory=dict)
+    # Meshes built for objects placed by build items: id(ResourceObject) -> mesh
+    item_mesh_cache: Dict[int, object] = field(default_factory=dict)
 
     # --- Slicer-specific data -----------------------------------------------
     vendor_format: Optional[str] = None  # "orca" | None
