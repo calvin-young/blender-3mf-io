@@ -335,7 +335,7 @@ def _component_instance_offset(
     current = resource_object
     while (
         current is not None
-        and not current.triangles
+        and len(current.triangles) == 0
         and current.components
         and len(current.components) == 1
     ):
