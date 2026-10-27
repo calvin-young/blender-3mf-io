@@ -846,6 +846,52 @@ class TestMultiproperties(MaterialsExtensionTestCase):
 
         self.assertEqual(len(orig_multis), len(exp_multis), "Multi count mismatch")
 
+    def test_multi_in_materials_namespace(self):
+        """<m:multi> (the namespace in the spec) is read, and written on export."""
+        model_xml = f'''<?xml version="1.0" encoding="UTF-8"?>
+<model xmlns="{NS_CORE}" xmlns:m="{NS_MATERIAL}" unit="millimeter">
+  <resources>
+    <basematerials id="1">
+      <base name="Red" displaycolor="#FF0000" />
+      <base name="Blue" displaycolor="#0000FF" />
+    </basematerials>
+    <m:colorgroup id="2">
+      <m:color color="#FFFF00FF" />
+    </m:colorgroup>
+    <m:multiproperties id="3" pids="1 2">
+      <m:multi pindices="1 0" />
+    </m:multiproperties>
+    <object id="100" type="model">
+      <mesh>
+        <vertices>
+          <vertex x="0" y="0" z="0" />
+          <vertex x="10" y="0" z="0" />
+          <vertex x="0" y="10" z="0" />
+        </vertices>
+        <triangles>
+          <triangle v1="0" v2="1" v3="2" pid="3" p1="0" />
+        </triangles>
+      </mesh>
+    </object>
+  </resources>
+  <build>
+    <item objectid="100" />
+  </build>
+</model>'''
+        input_path = self.create_test_3mf(model_xml)
+        self.assertTrue(self.import_3mf(input_path), "Import failed")
+
+        # The multi selects the second base material.
+        obj = [o for o in bpy.data.objects if o.type == "MESH"][0]
+        self.assertEqual([m.name for m in obj.data.materials], ["Blue"])
+
+        output_path = get_temp_test_dir() / "multi_namespace_out.3mf"
+        self.assertTrue(self.export_3mf(output_path), "Export failed")
+        exported = self.extract_model_xml(output_path)
+        multis = self.find_elements(exported, "multi")
+        self.assertEqual(len(multis), 1)
+        self.assertEqual(multis[0].tag, f"{{{NS_MATERIAL}}}multi")
+
     def test_multiproperties_multiply_blend(self):
         """Multiproperties with multiply blendmethod should preserve."""
         model_xml = f'''<?xml version="1.0" encoding="UTF-8"?>
