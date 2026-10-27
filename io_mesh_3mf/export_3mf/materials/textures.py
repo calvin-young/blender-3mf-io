@@ -29,6 +29,7 @@ import zipfile
 from typing import Optional, Dict, List, Tuple
 
 import bpy
+import numpy as np
 
 from ...common.constants import (
     MATERIAL_NAMESPACE,
@@ -356,6 +357,15 @@ def write_textures_to_archive(
         except KeyError:
             pass
 
+        # An unmodified image loaded from a file (e.g. imported) is written as is:
+        # no re-encoding, and much faster for large textures.
+        packed_format = {".png": "PNG", ".jpg": "JPEG", ".jpeg": "JPEG"}[ext]
+        if image.packed_file is not None and not image.is_dirty and image.file_format == packed_format:
+            archive.writestr(archive_path, image.packed_file.data)
+            image_to_path[image_name] = full_archive_path
+            debug(f"Wrote packed texture '{image_name}' to {archive_path}")
+            continue
+
         try:
             # Save image to temporary file, then add to archive
             with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
@@ -562,6 +572,44 @@ def get_or_create_tex2coord(texture_group_data: Dict, u: float, v: float) -> int
 
     texture_group_data["tex2coords"][uv_key] = index
     return index
+
+
+def tex2coord_indices(texture_group_data: Dict, uvs: np.ndarray) -> np.ndarray:
+    """Vectorized :func:`get_or_create_tex2coord` for many UV pairs.
+
+    New coordinates are added in order of first appearance, as one call per
+    UV pair would add them.
+
+    :param texture_group_data: Dict with tex2coords mapping and group_element
+    :param uvs: UV pairs, shape (N, 2)
+    :return: Index of each UV pair in the texture2dgroup, shape (N,)
+    """
+    precision = texture_group_data.get("precision", 6)
+    keys = np.round(np.asarray(uvs, dtype=np.float64), precision)
+    scaled = np.round(keys * 10 ** precision)
+    if len(keys) and np.abs(scaled).max() < 2 ** 31:
+        # Pack each pair into one int64: sorting 1-D keys is much faster.
+        packed = (scaled[:, 0].astype(np.int64) << 32) | (scaled[:, 1].astype(np.int64) & 0xFFFFFFFF)
+        _, first, inverse = np.unique(packed, return_index=True, return_inverse=True)
+        distinct = keys[first]
+    else:
+        distinct, first, inverse = np.unique(keys, axis=0, return_index=True, return_inverse=True)
+    mapping = np.empty(len(distinct), dtype=np.int64)
+    known = texture_group_data["tex2coords"]
+    for number in np.argsort(first).tolist():
+        u, v = distinct[number].tolist()
+        index = known.get((u, v))
+        if index is None:
+            index = texture_group_data["next_index"]
+            texture_group_data["next_index"] = index + 1
+            xml.etree.ElementTree.SubElement(
+                texture_group_data["group_element"],
+                f"{{{MATERIAL_NAMESPACE}}}tex2coord",
+                attrib={"u": f"{u:.{precision}g}", "v": f"{v:.{precision}g}"},
+            )
+            known[(u, v)] = index
+        mapping[number] = index
+    return mapping[inverse.reshape(-1)]
 
 
 def write_pbr_textures_to_archive(

@@ -64,7 +64,7 @@ from ..common.metadata import Metadata
 from .materials import (
     ORCA_FILAMENT_CODES,
     get_triangle_color,
-    get_or_create_tex2coord,
+    tex2coord_indices,
 )
 
 
@@ -90,6 +90,7 @@ def format_triangles_xml(
     tri_vertices: np.ndarray,
     slot_indices: np.ndarray,
     slot_fragments: List[str],
+    triangle_fragments: Optional[List[Optional[str]]] = None,
 ) -> str:
     """Build the raw ``<triangles>`` XML block for triangles with per-slot attributes.
 
@@ -101,13 +102,25 @@ def format_triangles_xml(
     :param tri_vertices: Vertex indices, shape ``(n, 3)``.
     :param slot_indices: Material slot index per triangle, shape ``(n,)``.
     :param slot_fragments: Attribute fragment per slot (``""`` for none).
+    :param triangle_fragments: Optional fragment per triangle; where not None it
+        replaces the slot's fragment (e.g. texture coordinates).
     :return: ``<triangles>...</triangles>`` with no whitespace between elements.
     """
     n_tris = len(tri_vertices)
     # Out-of-range slot indices map to an extra empty fragment.
     fragments = list(slot_fragments) + [""]
     slots = np.minimum(slot_indices, len(fragments) - 1)
-    if n_tris == 0 or slots.min() == slots.max():
+    if n_tris and triangle_fragments is not None:
+        per_triangle = np.array(fragments, dtype=object)[slots]
+        overrides = np.array(triangle_fragments, dtype=object)
+        has_override = overrides != None  # noqa: E711 (element-wise comparison)
+        per_triangle[has_override] = overrides[has_override]
+        template = '<triangle v1="%d" v2="%d" v3="%d"%s/>'
+        columns = np.empty((n_tris, 4), dtype=object)
+        columns[:, :3] = tri_vertices
+        columns[:, 3] = per_triangle
+        values = tuple(columns.ravel().tolist())
+    elif n_tris == 0 or slots.min() == slots.max():
         # Common case (one material, or none): bake the fragment into the template.
         fragment = fragments[int(slots[0])].replace("%", "%%") if n_tris else ""
         template = f'<triangle v1="%d" v2="%d" v3="%d"{fragment}/>'
@@ -389,6 +402,32 @@ def write_triangles(
                 frag += f' p1="{p1_val}"'
             slot_frags[slot_idx] = frag if frag else None
 
+    # Texture coordinates of textured slots, resolved for all triangles at once.
+    triangle_fragments = None
+    if uv_data_arr is not None:
+        corner_loops = np.asarray(uv_loops_list, dtype=np.int64).reshape(n_tris, 3)
+        for slot_idx, frag in enumerate(slot_frags):
+            if not isinstance(frag, dict):
+                continue
+            slot_tris = np.flatnonzero(mat_flat == slot_idx)
+            if len(slot_tris):
+                indices = tex2coord_indices(frag, uv_data_arr[corner_loops[slot_tris]].reshape(-1, 2))
+                gid = frag["group_id"]
+                if triangle_fragments is None:
+                    triangle_fragments = [None] * n_tris
+                for tri_idx, (i1, i2, i3) in zip(slot_tris.tolist(), indices.reshape(-1, 3).tolist()):
+                    triangle_fragments[tri_idx] = f' pid="{gid}" p1="{i1}" p2="{i2}" p3="{i3}"'
+            slot_frags[slot_idx] = ""
+    if layered_fragments is not None:
+        # Layered materials (multiproperties) also come as per-triangle fragments.
+        if triangle_fragments is None:
+            triangle_fragments = layered_fragments
+        else:
+            for tri_idx, fragment in enumerate(layered_fragments):
+                if fragment is not None:
+                    triangle_fragments[tri_idx] = fragment
+        layered_fragments = None
+
     # --- Fast path: no per-triangle data beyond the material slot ---
     # Plain geometry and basematerials (the common case) only need each
     # slot's attribute fragment, so the whole block can be formatted at once.
@@ -401,7 +440,7 @@ def write_triangles(
         and all(frag is None or isinstance(frag, str) for frag in slot_frags)
     ):
         _raw_geometry_cache.setdefault(id(mesh_element), {})["triangles"] = format_triangles_xml(
-            verts_flat.reshape(n_tris, 3), mat_flat, [frag or "" for frag in slot_frags]
+            verts_flat.reshape(n_tris, 3), mat_flat, [frag or "" for frag in slot_frags], triangle_fragments,
         )
         _t3 = time.perf_counter()
         timing_debug(f"write_triangles fast path ({n_tris} tris)", (_t3 - _t2) * 1000)
@@ -464,22 +503,10 @@ def write_triangles(
                 extra = layered_fragments[tri_idx]
             elif mat_slot_idx < n_slots:
                 frag = slot_frags[mat_slot_idx]
-                if frag is not None:
-                    if isinstance(frag, str):
-                        extra = frag
-                    else:
-                        # Texture UV path — frag is the group_data dict
-                        loop0 = uv_loops_list[base]
-                        loop1 = uv_loops_list[base + 1]
-                        loop2 = uv_loops_list[base + 2]
-                        uv1 = uv_data_arr[loop0]
-                        uv2 = uv_data_arr[loop1]
-                        uv3 = uv_data_arr[loop2]
-                        gid = frag["group_id"]
-                        i1 = get_or_create_tex2coord(frag, float(uv1[0]), float(uv1[1]))
-                        i2 = get_or_create_tex2coord(frag, float(uv2[0]), float(uv2[1]))
-                        i3 = get_or_create_tex2coord(frag, float(uv3[0]), float(uv3[1]))
-                        extra = f' pid="{gid}" p1="{i1}" p2="{i2}" p3="{i3}"'
+                if triangle_fragments is not None and triangle_fragments[tri_idx] is not None:
+                    extra = triangle_fragments[tri_idx]  # Texture coordinates
+                elif frag is not None:
+                    extra = frag
 
             seam = seam_strings.get(tri_idx) if seam_strings else None
             sup = support_strings.get(tri_idx) if support_strings else None

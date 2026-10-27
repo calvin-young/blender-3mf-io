@@ -41,6 +41,7 @@ from .textures import (
     write_texture_relationships,
     write_texture_resources,
     get_or_create_tex2coord,
+    tex2coord_indices,
     write_pbr_textures_to_archive,
     write_pbr_texture_display_properties,
 )
@@ -68,6 +69,7 @@ __all__ = [
     "write_texture_relationships",
     "write_texture_resources",
     "get_or_create_tex2coord",
+    "tex2coord_indices",
     "write_pbr_textures_to_archive",
     "write_pbr_texture_display_properties",
     # Passthrough

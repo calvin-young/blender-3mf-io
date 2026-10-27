@@ -97,7 +97,7 @@ def _indent_raw_geometry(raw: str, depth: int) -> str:
     return f"{head}\n{_XML_INDENT * depth}{closing_tag}"
 
 
-def _stream_model_to_file(f, root: xml.etree.ElementTree.Element) -> None:
+def _stream_model_to_file(output, root: xml.etree.ElementTree.Element) -> None:
     """Write the 3MF model XML to a binary file-like object *f* without using
     ElementTree's Python-level serialiser.
 
@@ -115,8 +115,29 @@ def _stream_model_to_file(f, root: xml.etree.ElementTree.Element) -> None:
     map (populated by ``register_namespace()`` calls earlier in the export).
 
     The output is indented (one element per line) so it can be read and edited
-    by hand.
+    by hand.  It is collected and written in large pieces: each write to a ZIP
+    entry is compressed separately, which is slow for many small writes.
     """
+    pending: list = []
+    pending_size = 0
+
+    class _Buffer:
+        @staticmethod
+        def write(data: bytes) -> None:
+            nonlocal pending_size
+            pending.append(data)
+            pending_size += len(data)
+            if pending_size >= 1 << 23:
+                flush()
+
+    def flush() -> None:
+        nonlocal pending_size
+        if pending:
+            output.write(b"".join(pending))
+            pending.clear()
+            pending_size = 0
+
+    f = _Buffer
     # Build uri→prefix from ElementTree's internal registry.
     # _namespace_map stores {uri: prefix}, so copy it directly.
     try:
@@ -197,9 +218,22 @@ def _stream_model_to_file(f, root: xml.etree.ElementTree.Element) -> None:
                 clear_raw_geometry(elem)
             # Always recurse into DOM children (handles triangle_sets,
             # metadatagroup, and passthrough <triangles> from write_passthrough_triangles).
-            for child in elem:
-                f.write(child_break)
-                _write_element(child, depth + 1)
+            if len(elem) > 64 and all(len(child) == 0 and not child.text and not child.tail for child in elem):
+                # Many plain leaf elements (e.g. <tex2coord>, <color>, <multi>): format them in one go.
+                separator = child_break.decode("utf-8")
+                tag_names: dict = {}
+                parts = []
+                for child in elem:
+                    name = tag_names.get(child.tag)
+                    if name is None:
+                        name = tag_names[child.tag] = _qname(child.tag)
+                    attributes = " ".join(f'{_qname(k)}="{_attr_escape(v)}"' for k, v in child.attrib.items())
+                    parts.append(f"{separator}<{name} {attributes}/>" if attributes else f"{separator}<{name}/>")
+                f.write("".join(parts).encode("utf-8"))
+            else:
+                for child in elem:
+                    f.write(child_break)
+                    _write_element(child, depth + 1)
             # Leaf elements with only text (e.g. <metadata>) stay on one line.
             if raw_v is not None or len(elem) > 0:
                 f.write(("\n" + _XML_INDENT * depth).encode("utf-8"))
@@ -213,6 +247,7 @@ def _stream_model_to_file(f, root: xml.etree.ElementTree.Element) -> None:
     f.write(b"<?xml version='1.0' encoding='UTF-8'?>\n")
     _write_element(root, is_root=True)
     f.write(b"\n")
+    flush()
 
 
 def _is_object_excluded(obj: bpy.types.Object, ctx) -> bool:
