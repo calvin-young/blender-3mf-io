@@ -927,6 +927,7 @@ class TestMultiproperties(MaterialsExtensionTestCase):
         multis = self.find_elements(exported, "multi")
         self.assertEqual(len(multis), 1)
         self.assertEqual(multis[0].tag, f"{{{NS_MATERIAL}}}multi")
+
     def test_multiproperties_without_textures_keeps_triangles(self):
         """Triangles that use a material + color multiproperties group are still exported.
 
