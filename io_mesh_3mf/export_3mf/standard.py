@@ -56,6 +56,7 @@ from .materials import (
     write_passthrough_materials,
     write_passthrough_textures_to_archive,
 )
+from .layers import LayeredExport, detect_layered_materials
 from .thumbnail import write_thumbnail
 from .privacy import strip_model_xml
 from .triangle_sets import write_triangle_sets
@@ -519,6 +520,17 @@ class StandardExporter(BaseExporter):
                 basematerials_element = None
                 debug("Removed unused basematerials — all faces use texture2dgroup")
 
+        # Layered materials (texture/color layers blended with Mix nodes) -> multiproperties
+        layered_materials = detect_layered_materials(all_mesh_objects)
+        ctx.layered_export = None
+        if layered_materials:
+            ctx.layered_export = LayeredExport(layered_materials, ctx.next_resource_id)
+            ctx.layered_export.write_resources(archive, resources_element)
+            ctx.next_resource_id = ctx.layered_export.next_resource_id
+            all_texture_rels.update(ctx.layered_export.image_paths)
+            ctx.extension_manager.activate(MATERIALS_EXTENSION.namespace)
+            debug(f"Exporting {len(layered_materials)} layered materials as multiproperties")
+
         # Write passthrough texture images to the archive BEFORE writing XML references
         passthrough_image_paths = write_passthrough_textures_to_archive(archive)
         if passthrough_image_paths:
@@ -539,6 +551,8 @@ class StandardExporter(BaseExporter):
         ctx._progress_update(5, "Writing objects...", phase=1)
         _t_objects = time.perf_counter()
         self.write_objects(root, resources_element, blender_objects, global_scale)
+        if ctx.layered_export is not None:
+            ctx.layered_export.finish(resources_element)
         timing_debug("StandardExporter.write_objects TOTAL", (time.perf_counter() - _t_objects) * 1000)
 
         # Re-register namespaces now that all extensions have been activated.
@@ -1058,6 +1072,7 @@ class StandardExporter(BaseExporter):
                     segmentation_strings,
                     seam_strings=seam_strings,
                     support_strings=support_strings,
+                    layered_export=ctx.layered_export,
                 )
                 timing_debug(f"write_triangles caller overhead '{object_name}'", (time.perf_counter() - _t_tris) * 1000)
 
@@ -1318,6 +1333,7 @@ class StandardExporter(BaseExporter):
                 str(ctx.material_resource_id)
                 if ctx.material_resource_id
                 else None,
+                layered_export=ctx.layered_export,
             )
 
         eval_object.to_mesh_clear()

@@ -26,6 +26,7 @@ import bpy
 
 from ...common import debug, warn
 from ...common.constants import MATERIAL_NAMESPACE, MODEL_NAMESPACE
+from ..fast_parse import fast_array
 
 from ...common.types import (
     ResourceComposite,
@@ -114,6 +115,13 @@ def read_multiproperties(op, root, material_ns: Dict[str, str]) -> None:
         blendmethods = multi_item.attrib.get("blendmethods")
 
         multis = []
+        converted = fast_array(op, multi_item)
+        if converted is not None:
+            op.fast_arrays.setdefault("multiproperties", {})[multi_id] = converted
+            multis = [
+                {"pindices": " ".join(str(index) for index in row if index >= 0)}
+                for row in converted.tolist()
+            ]
         # <multi> elements are in the materials namespace.  Older files written
         # by this add-on put them in the core namespace, so accept both.
         for m_item in multi_item.iterfind("./*"):
@@ -175,16 +183,20 @@ def store_passthrough_materials(op) -> None:
         scene["3mf_compositematerials"] = json.dumps(composites_data)
         debug(f"Stored {len(composites_data)} compositematerials for round-trip export")
 
-    # Store multiproperties
+    # Store multiproperties (except layered ones, which became Blender materials)
+    from ..layers import layer_kinds
     if op.resource_multiproperties:
         multiprops_data = {}
         for mp_id, mp in op.resource_multiproperties.items():
+            if layer_kinds(op, mp_id):
+                continue
             multiprops_data[mp_id] = {
                 "pids": mp.pids,
                 "blendmethods": mp.blendmethods,
                 "multis": mp.multis,
             }
-        scene["3mf_multiproperties"] = json.dumps(multiprops_data)
+        if multiprops_data:
+            scene["3mf_multiproperties"] = json.dumps(multiprops_data)
         debug(f"Stored {len(multiprops_data)} multiproperties for round-trip export")
 
     # Store texture metadata

@@ -664,6 +664,7 @@ def import_3mf(
     from .import_3mf import builder as builder_mod
     from .import_3mf import geometry as geometry_mod
     from .import_3mf.context import ImportContext, ImportOptions
+    from .import_3mf.fast_parse import parse_model as _parse_model
     from .import_3mf.materials import (
         extract_textures_from_archive as _extract_textures_impl,
         read_composite_materials as _read_composite_impl,
@@ -782,14 +783,11 @@ def import_3mf(
     # --- Parse model files --------------------------------------------------
     for model_file in files_by_content_type.get(MODEL_MIMETYPE, []):
         try:
-            document = xml.etree.ElementTree.ElementTree(file=model_file)
+            root = _parse_model(ctx, model_file)
         except xml.etree.ElementTree.ParseError as e:
             error(f"3MF document is malformed: {e}")
             warnings_list.append(f"Malformed XML: {e}")
             continue
-        if document is None:
-            continue
-        root = document.getroot()
 
         # Vendor detection.
         if ctx.options.import_materials != "NONE":

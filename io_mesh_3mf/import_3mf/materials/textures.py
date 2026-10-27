@@ -28,6 +28,7 @@ from typing import Dict, Optional
 import bpy
 
 from ...common import debug, warn, error
+from ..fast_parse import fast_array
 
 from ...common.types import (
     ResourceTexture,
@@ -142,7 +143,11 @@ def read_texture_groups(
 
         display_props_id = group_item.attrib.get("displaypropertiesid")
 
-        tex2coords = []
+        tex2coords = fast_array(op, group_item)
+        if tex2coords is not None:
+            tex2coords = [tuple(coord) for coord in tex2coords.tolist()]
+        else:
+            tex2coords = []
         for coord_item in group_item.iterfind("./m:tex2coord", material_ns):
             try:
                 u = float(coord_item.attrib.get("u", "0"))
@@ -476,3 +481,98 @@ def setup_multi_textured_material(
 
     tex_names = ", ".join(t.blender_image.name for t in textures if t.blender_image)
     debug(f"Created multi-textured material with {len(textures)} textures: {tex_names}")
+
+
+# 3MF tile style -> Image Texture extension.  "none" shows nothing outside the
+# texture (transparent), which only differs from "clamp" in upper layers.
+_LAYER_EXTENSION = {"wrap": "REPEAT", "mirror": "MIRROR", "clamp": "EXTEND", "none": "CLIP"}
+
+
+def setup_layered_material(op, material: bpy.types.Material, resource_material) -> None:
+    """Build the node tree of a layered material (see :mod:`..layers`).
+
+    Each layer becomes an RGB, Color Attribute or Image Texture node, and the
+    layers are blended bottom to top with Mix nodes into the Principled BSDF's
+    Base Color:
+
+    - ``mix``: Mix (Mix), factor = the layer's alpha.
+    - ``multiply``: Mix (Multiply), factor 1.
+
+    The exporter recognises this pattern and writes it back as multiproperties.
+
+    :param op: The import context.
+    :param material: The Blender material to configure.
+    :param resource_material: ResourceMaterial with ``layers`` set.
+    """
+    material.use_nodes = True
+    nodes = material.node_tree.nodes
+    links = material.node_tree.links
+    nodes.clear()
+
+    output = nodes.new("ShaderNodeOutputMaterial")
+    principled = nodes.new("ShaderNodeBsdfPrincipled")
+    layer_count = len(resource_material.layers)
+    principled.location = (300 * layer_count, 0)
+    output.location = (300 * layer_count + 300, 0)
+    links.new(principled.outputs["BSDF"], output.inputs["Surface"])
+
+    accumulated = None
+    for position, (kind, value, data_name, blend) in enumerate(resource_material.layers):
+        x = 300 * position - 600
+        y = -320 * position
+        alpha = None  # Socket or constant for the layer's opacity
+        if kind in ("color", "material"):
+            node = nodes.new("ShaderNodeRGB")
+            node.outputs["Color"].default_value = tuple(value[:3]) + (1.0,)
+            color = node.outputs["Color"]
+            alpha = value[3] if len(value) > 3 else 1.0
+            if kind == "material":
+                # The base layer is a 3MF base material, not just a color: keep its name
+                # so the exporter writes it back as a material.
+                material["3mf_base_material"] = data_name
+        elif kind == "attribute":
+            node = nodes.new("ShaderNodeVertexColor")
+            node.layer_name = data_name
+            color, alpha = node.outputs["Color"], node.outputs["Alpha"]
+        else:
+            texture = op.resource_textures[value]
+            uv_node = nodes.new("ShaderNodeUVMap")
+            uv_node.uv_map = data_name
+            uv_node.location = (x - 250, y - 120)
+            node = nodes.new("ShaderNodeTexImage")
+            node.image = texture.blender_image
+            tile_style = texture.tilestyleu or "wrap"
+            node.extension = _LAYER_EXTENSION.get(tile_style, "REPEAT")
+            if position == 0 and node.extension == "CLIP":
+                node.extension = "EXTEND"  # "none" acts like "clamp" in the base layer.
+            node.interpolation = "Closest" if texture.filter == "nearest" else "Linear"
+            links.new(uv_node.outputs["UV"], node.inputs["Vector"])
+            color, alpha = node.outputs["Color"], node.outputs["Alpha"]
+            if texture.path:
+                texture.blender_image["3mf_texture_path"] = texture.path
+        node.location = (x, y)
+        node.label = f"3MF layer {position}"
+
+        if accumulated is None:
+            accumulated = color
+            continue
+        mix = nodes.new("ShaderNodeMix")
+        mix.data_type = "RGBA"
+        mix.location = (x + 250, y + 160)
+        mix.label = f"Blend layer {position} ({blend or 'mix'})"
+        if blend == "multiply":
+            mix.blend_type = "MULTIPLY"
+            mix.inputs[0].default_value = 1.0
+        else:
+            mix.blend_type = "MIX"
+            if isinstance(alpha, float):
+                mix.inputs[0].default_value = alpha
+            else:
+                links.new(alpha, mix.inputs[0])
+        links.new(accumulated, mix.inputs[6])  # A
+        links.new(color, mix.inputs[7])  # B
+        accumulated = mix.outputs[2]
+
+    links.new(accumulated, principled.inputs["Base Color"])
+    material["3mf_layered"] = True
+    debug(f"Created layered material '{material.name}' with {layer_count} layers")

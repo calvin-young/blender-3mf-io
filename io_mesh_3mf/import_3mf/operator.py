@@ -47,6 +47,7 @@ from ..common.units import blender_to_metre, threemf_to_metre
 from .context import ImportContext, ImportOptions
 from . import archive as archive_mod
 from . import geometry as geometry_mod
+from .fast_parse import parse_model
 from . import builder as builder_mod
 from .scene import apply_grid_layout
 from .slicer import (
@@ -577,14 +578,11 @@ class Import3MF(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
         # Parse each model file.
         for model_file in files_by_content_type.get(MODEL_MIMETYPE, []):
             try:
-                document = xml.etree.ElementTree.ElementTree(file=model_file)
+                root = parse_model(ctx, model_file)
             except xml.etree.ElementTree.ParseError as e:
                 error(f"3MF document in {path} is malformed: {str(e)}")
                 ctx.safe_report({"ERROR"}, f"3MF document in {path} is malformed: {str(e)}")
                 continue
-            if document is None:
-                continue
-            root = document.getroot()
 
             self._process_model_root(ctx, root, path, context, scene_metadata)
 

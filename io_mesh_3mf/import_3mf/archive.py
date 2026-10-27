@@ -345,6 +345,7 @@ def load_external_model(
     :param ctx: The import context.
     :param model_path: Archive-relative path (e.g. ``/3D/Objects/Cube_1.model``).
     """
+    from .fast_parse import parse_model
     from .geometry import read_external_model_objects
 
     if not ctx.current_archive_path:
@@ -366,13 +367,12 @@ def load_external_model(
 
             with archive.open(archive_path) as model_file:
                 try:
-                    document = xml.etree.ElementTree.parse(model_file)
+                    root = parse_model(ctx, model_file)
                 except xml.etree.ElementTree.ParseError as e:
                     error(f"External model {archive_path} is malformed: {e}")
                     ctx.safe_report({"ERROR"}, f"External model {archive_path} is malformed")
                     return
 
-                root = document.getroot()
                 read_external_model_objects(ctx, root, model_path)
                 debug(f"Loaded external model: {archive_path}")
 

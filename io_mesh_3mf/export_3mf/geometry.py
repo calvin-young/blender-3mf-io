@@ -245,6 +245,7 @@ def write_triangles(
     segmentation_strings: Optional[Dict[int, str]] = None,
     seam_strings: Optional[Dict[int, str]] = None,
     support_strings: Optional[Dict[int, str]] = None,
+    layered_export=None,
 ) -> None:
     """
     Writes triangle geometry into the specified mesh element.
@@ -268,6 +269,7 @@ def write_triangles(
     :param segmentation_strings: Dict of face_index -> segmentation hash string (for PAINT mode).
     :param seam_strings: Dict of face_index -> seam segmentation hash string.
     :param support_strings: Dict of face_index -> support segmentation hash string.
+    :param layered_export: :class:`.layers.LayeredExport` for layered materials, if any.
     """
     debug(
         f"[write_triangles] mode={use_orca_format}, slicer={mmu_slicer_format},",
@@ -347,6 +349,15 @@ def write_triangles(
     _t2 = time.perf_counter()
     timing_debug(f"write_triangles pre-compute (slots + UV fetch)", (_t2 - _t1) * 1000)
 
+    # Property references of triangles with layered materials (multiproperties).
+    layered_fragments = None
+    if layered_export is not None and mesh is not None:
+        loops_all = np.empty(n_tris * 3, dtype=np.int32)
+        triangles.foreach_get("loops", loops_all)
+        layered_fragments = layered_export.triangle_fragments(
+            mesh, loops_all.reshape(n_tris, 3), mat_flat, material_slots,
+        )
+
     # Hoist per-iteration conditionals that don't change between triangles
     has_segmentation = bool(segmentation_strings)
     is_basematerial_vc = (
@@ -386,6 +397,7 @@ def write_triangles(
         and not is_basematerial_vc
         and not seam_strings
         and not support_strings
+        and layered_fragments is None
         and all(frag is None or isinstance(frag, str) for frag in slot_frags)
     ):
         _raw_geometry_cache.setdefault(id(mesh_element), {})["triangles"] = format_triangles_xml(
@@ -448,7 +460,9 @@ def write_triangles(
             # --- Standard material path (pre-computed slot fragments) ---
             mat_slot_idx = mat_indices_list[tri_idx]
             extra = ""
-            if mat_slot_idx < n_slots:
+            if layered_fragments is not None and layered_fragments[tri_idx] is not None:
+                extra = layered_fragments[tri_idx]
+            elif mat_slot_idx < n_slots:
                 frag = slot_frags[mat_slot_idx]
                 if frag is not None:
                     if isinstance(frag, str):

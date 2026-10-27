@@ -180,6 +180,14 @@ def _select_exporter(ctx, context, mesh_objects, has_materials):
             )
             return StandardExporter(ctx)
 
+        # Textures (single or layered) only exist in the Materials Extension:
+        # slicer projects would drop them.
+        from .layers import detect_layered_materials
+        from .materials import detect_textured_materials
+        if detect_layered_materials(mesh_objects) or detect_textured_materials(mesh_objects):
+            debug("AUTO: textured materials detected, using StandardExporter")
+            return StandardExporter(ctx)
+
         # Material slots present — use Orca for slicer compatibility
         debug("AUTO: materials detected, using OrcaExporter for slicer compatibility")
         return OrcaExporter(ctx)

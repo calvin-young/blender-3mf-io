@@ -19,11 +19,13 @@ export sides import from this single module.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from collections.abc import Sequence
 from typing import Optional, List, Dict, Tuple
 
 __all__ = [
     "ResourceObject",
     "Component",
+    "TriangleMaterials",
     "ResourceMaterial",
     "ResourceTexture",
     "ResourceTextureGroup",
@@ -50,6 +52,29 @@ class ResourceObject:
     seam_strings: Optional[dict] = None
     support_strings: Optional[dict] = None
     default_extruder: Optional[int] = None
+    # Per-corner data of layered materials: layer position -> array (see import_3mf.layers)
+    layer_uvs: Optional[dict] = None
+    layer_colors: Optional[dict] = None
+
+
+class TriangleMaterials(Sequence):
+    """Per-triangle materials, stored as a number per triangle into a list of distinct materials.
+
+    Behaves like a list of materials, but lets the importer assign material
+    slots per distinct material instead of per triangle.
+    """
+
+    def __init__(self, distinct: list, numbers):
+        self.distinct = distinct  # Distinct materials (may include None).
+        self.numbers = numbers  # numpy int array: index into ``distinct`` per triangle.
+
+    def __len__(self) -> int:
+        return len(self.numbers)
+
+    def __getitem__(self, index):
+        if isinstance(index, slice):
+            return [self.distinct[number] for number in self.numbers[index].tolist()]
+        return self.distinct[self.numbers[index]]
 
 
 @dataclass
@@ -93,6 +118,10 @@ class ResourceMaterial:
 
     # Multiproperties multi-texture support
     extra_texture_ids: Optional[List[str]] = None
+
+    # Layered multiproperties: one (kind, value, data name, blend) tuple per layer,
+    # see import_3mf.layers.  None for ordinary materials.
+    layers: Optional[tuple] = None
 
     def __hash__(self):
         """Hash based on name and color for use as dict keys / set members."""
