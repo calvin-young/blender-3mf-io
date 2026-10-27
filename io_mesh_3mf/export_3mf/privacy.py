@@ -44,6 +44,16 @@ _TECHNICAL_METADATA = frozenset({
 })
 
 
+# Materials-extension elements whose required ``name`` attribute is replaced.
+_DISPLAY_PROPERTY_TAGS = frozenset({
+    "pbspecular",
+    "pbmetallic",
+    "translucent",
+    "pbspeculartexturedisplayproperties",
+    "pbmetallictexturedisplayproperties",
+})
+
+
 def _local(name: str) -> str:
     """Return the local part of a Clark-notation tag or attribute name."""
     return name.rsplit("}", 1)[-1]
@@ -69,6 +79,7 @@ def strip_model_xml(root: xml.etree.ElementTree.Element, keep_metadata=()) -> No
     """
     keep = _TECHNICAL_METADATA.union(keep_metadata)
     material_count = 0
+    display_count = 0
     triangle_set_count = 0
     for parent in root.iter():
         for child in list(parent):
@@ -92,6 +103,12 @@ def strip_model_xml(root: xml.etree.ElementTree.Element, keep_metadata=()) -> No
             if key is not None:
                 material_count += 1
                 parent.attrib[key] = f"Material {material_count}"
+        elif tag in _DISPLAY_PROPERTY_TAGS:
+            # Display properties (Materials extension) require a name too.
+            key = _attribute_key(parent, "name")
+            if key is not None:
+                display_count += 1
+                parent.attrib[key] = f"Material {display_count}"
         elif tag == "triangleset":
             # The Triangle Sets extension requires a name; the identifier is optional.
             triangle_set_count += 1
