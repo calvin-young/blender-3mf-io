@@ -140,9 +140,15 @@ def check_non_manifold_geometry(
     :param use_mesh_modifiers: Whether to apply modifiers when getting mesh.
     :return: List with first object name that has non-manifold geometry, or empty list.
     """
+    checked = set()  # Mesh data already checked (linked duplicates share it)
     for blender_object in blender_objects:
         if blender_object.type != "MESH":
             continue
+        if not (use_mesh_modifiers and blender_object.modifiers):
+            key = blender_object.data.as_pointer()
+            if key in checked:
+                continue
+            checked.add(key)
 
         if use_mesh_modifiers:
             dependency_graph = bpy.context.evaluated_depsgraph_get()
@@ -161,9 +167,16 @@ def check_non_manifold_geometry(
         try:
             n_loops = len(mesh.loops)
             loop_edges = np.empty(n_loops, dtype=np.int32)
-            mesh.loops.foreach_get("edge_index", loop_edges)
             loop_verts = np.empty(n_loops, dtype=np.int32)
-            mesh.loops.foreach_get("vertex_index", loop_verts)
+            corner_edge = mesh.attributes.get(".corner_edge")
+            corner_vert = mesh.attributes.get(".corner_vert")
+            if corner_edge is not None and corner_vert is not None:
+                # Whole-buffer copies; the per-loop properties are much slower.
+                corner_edge.data.foreach_get("value", loop_edges)
+                corner_vert.data.foreach_get("value", loop_verts)
+            else:
+                mesh.loops.foreach_get("edge_index", loop_edges)
+                mesh.loops.foreach_get("vertex_index", loop_verts)
 
             faces_per_edge = np.bincount(loop_edges, minlength=len(mesh.edges))
             faces_per_vert = np.bincount(loop_verts, minlength=len(mesh.vertices))
