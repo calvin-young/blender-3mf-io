@@ -204,6 +204,19 @@ class ExportMetadataTests(Blender3mfTestCase):
         self.assertNotIn("Title", names)
         self.assertIn("vendor:Note", names)
 
+        # Import and export again: nothing internal in any group (the importer
+        # stores 3mf:object_type on objects, which build items used to write).
+        for o in list(bpy.data.objects):
+            bpy.data.objects.remove(o)
+        bpy.ops.import_mesh.threemf(filepath=str(self.temp_file))
+        bpy.ops.export_mesh.threemf(filepath=str(self.temp_file), use_orca_format="STANDARD")
+        with zipfile.ZipFile(str(self.temp_file), "r") as archive:
+            root = ET.fromstring(archive.read("3D/3dmodel.model"))
+        for group in root.iter(f"{ns}metadatagroup"):
+            for entry in group:
+                self.assertFalse(entry.get("name").startswith("3mf:"))
+                self.assertNotEqual(entry.get("name"), "Title")
+
     def test_core_properties_written(self):
         """OPC Core Properties file is in the archive."""
         bpy.ops.mesh.primitive_cube_add(location=(0, 0, 0))
