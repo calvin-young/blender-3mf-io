@@ -25,6 +25,7 @@ from typing import Dict
 import bpy
 
 from ...common import debug, warn
+from ...common.constants import MATERIAL_NAMESPACE, MODEL_NAMESPACE
 
 from ...common.types import (
     ResourceComposite,
@@ -113,8 +114,11 @@ def read_multiproperties(op, root, material_ns: Dict[str, str]) -> None:
         blendmethods = multi_item.attrib.get("blendmethods")
 
         multis = []
-        # Note: <multi> elements are in the core namespace, not materials namespace
-        for m_item in multi_item.iterfind("./3mf:multi", {**MODEL_NAMESPACES, **material_ns}):
+        # <multi> elements are in the materials namespace.  Older files written
+        # by this add-on put them in the core namespace, so accept both.
+        for m_item in multi_item.iterfind("./*"):
+            if m_item.tag not in (f"{{{MATERIAL_NAMESPACE}}}multi", f"{{{MODEL_NAMESPACE}}}multi"):
+                continue
             pindices = m_item.attrib.get("pindices", "")
             multis.append({"pindices": pindices})
 
