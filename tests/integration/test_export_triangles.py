@@ -186,6 +186,24 @@ class ExportMetadataTests(Blender3mfTestCase):
             # Should have at least one metadata tag (Title, Application, etc.)
             self.assertIn("metadata", model_data.lower())
 
+    def test_no_model_metadata_in_object_metadatagroup(self):
+        """Well-known (model) metadata names are not written into an object's metadatagroup."""
+        bpy.ops.mesh.primitive_cube_add(location=(0, 0, 0))
+        cube = bpy.context.object
+        cube.name = "Named cube"
+        cube["vendor:Note"] = {"datatype": "xs:string", "preserve": True, "value": "kept"}
+
+        bpy.ops.export_mesh.threemf(filepath=str(self.temp_file), use_orca_format="STANDARD")
+
+        with zipfile.ZipFile(str(self.temp_file), "r") as archive:
+            root = ET.fromstring(archive.read("3D/3dmodel.model"))
+        ns = "{http://schemas.microsoft.com/3dmanufacturing/core/2015/02}"
+        obj = root.find(f"./{ns}resources/{ns}object")
+        self.assertEqual(obj.get("name"), "Named cube")
+        names = [m.get("name") for m in obj.iter(f"{ns}metadata")]
+        self.assertNotIn("Title", names)
+        self.assertIn("vendor:Note", names)
+
     def test_core_properties_written(self):
         """OPC Core Properties file is in the archive."""
         bpy.ops.mesh.primitive_cube_add(location=(0, 0, 0))
