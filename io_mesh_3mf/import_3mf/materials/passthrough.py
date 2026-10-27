@@ -199,10 +199,29 @@ def store_passthrough_materials(op) -> None:
             scene["3mf_multiproperties"] = json.dumps(multiprops_data)
         debug(f"Stored {len(multiprops_data)} multiproperties for round-trip export")
 
+    # Texture groups used by triangles are represented by Blender materials and
+    # written again from them on export.  Storing them as well wrote every one
+    # twice, including those of objects deleted after import.  Keep the unused
+    # ones, those of stored multiproperties, and the textures they need.
+    stored_multiproperty_pids = set()
+    for mp_id, mp in op.resource_multiproperties.items():
+        if not layer_kinds(op, mp_id):
+            stored_multiproperty_pids.update((mp.pids or "").split())
+    kept_groups = {
+        group_id for group_id in op.resource_texture_groups
+        if group_id not in op.used_property_ids or group_id in stored_multiproperty_pids
+    }
+    used_texids = {g.texid for gid, g in op.resource_texture_groups.items() if gid not in kept_groups}
+    needed_texids = {g.texid for gid, g in op.resource_texture_groups.items() if gid in kept_groups}
+    for props in op.resource_pbr_texture_displays.values():
+        needed_texids.update(t for t in (props.primary_texid, props.secondary_texid, props.basecolor_texid) if t)
+
     # Store texture metadata
     if op.resource_textures:
         textures_data = {}
         for tex_id, tex in op.resource_textures.items():
+            if tex_id in used_texids and tex_id not in needed_texids:
+                continue
             textures_data[tex_id] = {
                 "path": tex.path,
                 "contenttype": tex.contenttype,
@@ -211,19 +230,23 @@ def store_passthrough_materials(op) -> None:
                 "filter": tex.filter,
                 "blender_image": tex.blender_image.name if tex.blender_image else None,
             }
-        scene["3mf_textures"] = json.dumps(textures_data)
+        if textures_data:
+            scene["3mf_textures"] = json.dumps(textures_data)
         debug(f"Stored {len(textures_data)} texture2d resources for round-trip export")
 
     # Store texture groups
     if op.resource_texture_groups:
         groups_data = {}
         for group_id, group in op.resource_texture_groups.items():
+            if group_id not in kept_groups:
+                continue
             groups_data[group_id] = {
                 "texid": group.texid,
                 "tex2coords": group.tex2coords,
                 "displaypropertiesid": group.displaypropertiesid,
             }
-        scene["3mf_texture_groups"] = json.dumps(groups_data)
+        if groups_data:
+            scene["3mf_texture_groups"] = json.dumps(groups_data)
         debug(f"Stored {len(groups_data)} texture2dgroup resources for round-trip export")
 
     # Store non-textured PBR display properties
