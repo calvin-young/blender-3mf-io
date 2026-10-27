@@ -123,20 +123,33 @@ class _DeflateStream(io.RawIOBase):
         self._file.seek(offset)
         self._inflate = zlib.decompressobj(-15)
         self._pending = b""
+        self._position = 0  # Read position in _pending
 
     def readable(self) -> bool:
         return True
 
     def readinto(self, buffer) -> int:
-        while len(self._pending) < len(buffer) and not self._inflate.eof:
-            chunk = self._file.read(1 << 22)
+        if self._position >= len(self._pending):
+            self._pending, self._position = b"", 0
+            while not self._pending and not self._inflate.eof:
+                chunk = self._file.read(1 << 22)
+                if not chunk:
+                    break
+                self._pending = self._inflate.decompress(chunk)
+        count = min(len(buffer), len(self._pending) - self._position)
+        buffer[:count] = self._pending[self._position:self._position + count]
+        self._position += count
+        return count
+
+    def readall(self) -> bytes:
+        parts = [self._pending[self._position:]]
+        self._pending, self._position = b"", 0
+        while not self._inflate.eof:
+            chunk = self._file.read(1 << 24)
             if not chunk:
                 break
-            self._pending += self._inflate.decompress(chunk)
-        count = min(len(buffer), len(self._pending))
-        buffer[:count] = self._pending[:count]
-        self._pending = self._pending[count:]
-        return count
+            parts.append(self._inflate.decompress(chunk))
+        return b"".join(parts)
 
     def close(self) -> None:
         self._file.close()
@@ -163,7 +176,7 @@ def _recover_missing_entry(path: str, name: str):
                     name_length, extra_length = struct.unpack("<HH", data[header + 26:header + 30])
                     if name_length == len(encoded) and method == zipfile.ZIP_DEFLATED:
                         start = header + 30 + name_length + extra_length
-                        return io.BufferedReader(_DeflateStream(path, start, name), 1 << 22)
+                        return _DeflateStream(path, start, name)
                 position = data.find(encoded, position + 1)
     except (OSError, ValueError, struct.error):
         pass
