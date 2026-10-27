@@ -457,6 +457,11 @@ def _apply_auto_smooth(
     bpy.context.view_layer.objects.active = blender_object
     blender_object.select_set(True)
     try:
-        bpy.ops.object.shade_auto_smooth(angle=angle)
+        result = bpy.ops.object.shade_auto_smooth(angle=angle)
+        if "FINISHED" not in result:
+            # The modifier's node group comes from the Essentials asset library,
+            # which isn't always available (e.g. Blender 4.2 in background mode).
+            # Mark sharp edges by angle instead, which looks the same.
+            bpy.ops.object.shade_smooth_by_angle(angle=angle)
     except Exception:
         warn(f"Failed to apply Smooth by Angle to {blender_object.name}")
