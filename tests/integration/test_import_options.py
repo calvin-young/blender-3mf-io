@@ -288,9 +288,16 @@ class ImportShadingTests(Blender3mfTestCase):
         self.assertEqual(len(obj.modifiers), 0)
 
     def test_smooth_by_angle_adds_modifier(self):
-        """AUTO adds the Smooth by Angle modifier."""
+        """AUTO adds the Smooth by Angle modifier, or marks sharp edges where it can't."""
         obj = self._create_export_and_import(shading="AUTO")
-        self.assertEqual(len(obj.modifiers), 1)
+        if obj.modifiers:
+            self.assertEqual(len(obj.modifiers), 1)
+        else:
+            # Fallback when the modifier's asset isn't available: the 12 cube
+            # edges are sharp, the 6 diagonals of the triangulated faces aren't.
+            sharp = obj.data.attributes.get("sharp_edge")
+            self.assertIsNotNone(sharp)
+            self.assertEqual(sum(value.value for value in sharp.data), 12)
 
 
 class ImportHiddenObjectTests(Blender3mfTestCase):
