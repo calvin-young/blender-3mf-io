@@ -30,6 +30,7 @@ top of a full color texture.
 """
 
 import os
+import re
 import tempfile
 import xml.etree.ElementTree
 import zipfile
@@ -186,7 +187,8 @@ def texture_archive_path(image: bpy.types.Image) -> str:
     original = image.get("3mf_texture_path", "")
     if original:
         stem = os.path.splitext(os.path.basename(original))[0]
-        if image.name in (os.path.basename(original), stem):
+        name = re.sub(r"\.\d{3}$", "", image.name)  # Blender's ".001" for a second copy
+        if name in (os.path.basename(original), stem):
             return original.lstrip("/")
     name = "".join(c if c.isalnum() or c in "._- ()" else "_" for c in image.name)
     if not name.lower().endswith((".png", ".jpg", ".jpeg")):
