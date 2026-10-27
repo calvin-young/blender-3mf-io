@@ -33,7 +33,7 @@ from typing import Dict, Tuple
 
 import bpy
 
-from ...common.constants import MATERIAL_NAMESPACE, MODEL_NAMESPACE
+from ...common.constants import MATERIAL_NAMESPACE
 from ...common import debug, warn, error
 
 
@@ -579,11 +579,11 @@ def _write_passthrough_multiproperties(
         )
 
         # Write multi children
-        # Note: <multi> elements are in the core namespace, not materials namespace
+        # Write multi children (in the materials namespace, like all Materials Extension elements)
         for m in multi.get("multis", []):
             xml.etree.ElementTree.SubElement(
                 multi_element,
-                f"{{{MODEL_NAMESPACE}}}multi",
+                f"{{{MATERIAL_NAMESPACE}}}multi",
                 attrib={"pindices": m.get("pindices", "")},
             )
 
