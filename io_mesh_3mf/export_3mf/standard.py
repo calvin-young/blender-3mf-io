@@ -1087,12 +1087,16 @@ class StandardExporter(BaseExporter):
                 f"[standard] Calling write_triangles with {len(segmentation_strings)} segmentation strings"
             )
 
+            written = False
             if use_passthrough and mesh.uv_layers.active:
-                write_passthrough_triangles(
+                written = write_passthrough_triangles(
                     mesh_element, mesh, passthrough_pid, remapped_pid,
                     ctx.options.use_orca_format, ctx.options.coordinate_precision,
                 )
-            else:
+            if not written:
+                # Without passthrough indices (no UV map, or a group without
+                # texture coordinates), write the triangles normally rather
+                # than leaving the mesh without triangles.
                 _t_tris = time.perf_counter()
                 write_triangles(
                     mesh_element,

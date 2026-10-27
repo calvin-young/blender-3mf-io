@@ -548,7 +548,7 @@ def write_passthrough_triangles(
     remapped_pid: str,
     use_orca_format: str,
     coordinate_precision: int,
-) -> None:
+) -> bool:
     """
     Write triangles with passthrough multiproperties indices from UV map.
 
@@ -562,6 +562,7 @@ def write_passthrough_triangles(
     :param remapped_pid: The remapped multiproperties resource ID.
     :param use_orca_format: Material export mode.
     :param coordinate_precision: Number of decimal places for coordinates.
+    :return: False if the triangles couldn't be written this way (nothing was written).
     """
     import json
 
@@ -570,7 +571,7 @@ def write_passthrough_triangles(
     uv_layer = mesh.uv_layers.active
     if not uv_layer:
         warn("No active UV layer found for passthrough triangle export")
-        return
+        return False
 
     # Load multiproperties data to get the multi entries
     mp_data_str = scene.get("3mf_multiproperties", "{}")
@@ -578,18 +579,18 @@ def write_passthrough_triangles(
         mp_data = json.loads(mp_data_str)
     except json.JSONDecodeError:
         warn("Failed to parse multiproperties for passthrough triangle export")
-        return
+        return False
 
     multiprop = mp_data.get(original_pid)
     if not multiprop:
         warn(f"Multiproperties {original_pid} not found in passthrough data")
-        return
+        return False
 
     # Get the first texture2dgroup pid to use for UV -> index mapping
     pids = multiprop.get("pids", "").split()
     if not pids:
         warn("Multiproperties has no pids")
-        return
+        return False
 
     # Load texture group data to get tex2coords
     tg_data_str = scene.get("3mf_texture_groups", "{}")
@@ -597,7 +598,7 @@ def write_passthrough_triangles(
         tg_data = json.loads(tg_data_str)
     except json.JSONDecodeError:
         warn("Failed to parse texture groups for passthrough triangle export")
-        return
+        return False
 
     # Find the first texture group pid (skip basematerials pid)
     tex2coords = None
@@ -608,7 +609,7 @@ def write_passthrough_triangles(
 
     if not tex2coords:
         warn("No tex2coords found for passthrough triangle UV mapping")
-        return
+        return False
 
     # Build reverse lookup: tex2coord index -> multi entry index
     multis = multiprop.get("multis", [])
@@ -700,6 +701,7 @@ def write_passthrough_triangles(
         f"Wrote {len(mesh.loop_triangles)} passthrough triangles "
         f"with multiproperties UV indices"
     )
+    return True
 
 
 # Metadata names the core specification defines for the model (Table 3-1).
