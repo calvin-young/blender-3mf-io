@@ -225,3 +225,56 @@ class APICompatibilityTests(Blender3mfTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SharedBuildItemMeshTests(Blender3mfTestCase):
+    """Build items placing the same object import as linked duplicates."""
+
+    MODEL = """<?xml version="1.0" encoding="UTF-8"?>
+<model xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" unit="millimeter">
+  <resources><object id="1" type="model" name="Part"><mesh>
+    <vertices><vertex x="0" y="0" z="0"/><vertex x="1" y="0" z="0"/><vertex x="0" y="1" z="0"/>
+      <vertex x="0" y="0" z="1"/></vertices>
+    <triangles><triangle v1="0" v2="2" v3="1"/><triangle v1="0" v2="1" v3="3"/>
+      <triangle v1="0" v2="3" v3="2"/><triangle v1="1" v2="2" v3="3"/></triangles>
+  </mesh></object></resources>
+  <build>
+    <item objectid="1" transform="1 0 0 0 1 0 0 0 1 10 0 0"/>
+    <item objectid="1" transform="1 0 0 0 1 0 0 0 1 20 0 0"/>
+    <item objectid="1" transform="1 0 0 0 1 0 0 0 1 30 0 0"/>
+  </build>
+</model>"""
+
+    def write(self):
+        import zipfile
+        with zipfile.ZipFile(self.temp_file, "w") as archive:
+            archive.writestr("[Content_Types].xml", """<?xml version="1.0" encoding="UTF-8"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/>
+</Types>""")
+            archive.writestr("_rels/.rels", """<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rel0" Target="/3D/3dmodel.model"
+    Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/>
+</Relationships>""")
+            archive.writestr("3D/3dmodel.model", self.MODEL)
+        return self.temp_file
+
+    def imported(self, **options):
+        self.assertEqual(
+            bpy.ops.import_mesh.threemf(filepath=str(self.write()), import_location="KEEP", **options),
+            {"FINISHED"},
+        )
+        return sorted((o for o in bpy.data.objects if o.type == "MESH"), key=lambda o: o.matrix_world.translation.x)
+
+    def test_items_share_one_mesh(self):
+        objects = self.imported()
+        self.assertEqual(len(objects), 3)
+        self.assertEqual(len({o.data.name for o in objects}), 1)
+        scale = objects[0].matrix_world.to_scale().x  # Unit scale (mm -> scene units)
+        self.assertEqual([round(o.matrix_world.translation.x / scale) for o in objects], [10, 20, 30])
+
+    def test_origin_change_keeps_separate_meshes(self):
+        objects = self.imported(origin_to_geometry="CENTER")
+        self.assertEqual(len({o.data.name for o in objects}), 3)

@@ -159,7 +159,14 @@ def build_object(
         # scale) has to be applied to the object instead.
         transformation = transformation @ _component_instance_offset(ctx, resource_object)
     else:
-        mesh = _build_mesh(ctx, resource_object, objectid_stack_trace)
+        # Build items that place the same object share its mesh (linked
+        # duplicates), unless something below changes the mesh per object.
+        share = ctx.options.origin_to_geometry == "KEEP" and not ctx.vendor_format
+        mesh = ctx.item_mesh_cache.get(id(resource_object)) if share else None
+        if mesh is None:
+            mesh = _build_mesh(ctx, resource_object, objectid_stack_trace)
+            if share and mesh is not None:
+                ctx.item_mesh_cache[id(resource_object)] = mesh
 
     # --- Create Blender object ---
     if mesh is not None:
