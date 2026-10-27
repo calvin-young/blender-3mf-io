@@ -538,6 +538,11 @@ class StandardExporter(BaseExporter):
         ctx._progress_update(5, "Writing objects...", phase=1)
         _t_objects = time.perf_counter()
         self.write_objects(root, resources_element, blender_objects, global_scale)
+        # A texture2dgroup needs at least one tex2coord: drop the groups of
+        # textured materials that no exported triangle uses.
+        for group_data in (ctx.texture_groups or {}).values():
+            if not group_data.get("next_index") and group_data["group_element"] in list(resources_element):
+                resources_element.remove(group_data["group_element"])
         timing_debug("StandardExporter.write_objects TOTAL", (time.perf_counter() - _t_objects) * 1000)
 
         # Re-register namespaces now that all extensions have been activated.
