@@ -28,6 +28,7 @@ from typing import Dict, Optional
 import bpy
 
 from ...common import debug, warn, error
+from ..fast_parse import fast_array
 
 from ...common.types import (
     ResourceTexture,
@@ -142,7 +143,11 @@ def read_texture_groups(
 
         display_props_id = group_item.attrib.get("displaypropertiesid")
 
-        tex2coords = []
+        tex2coords = fast_array(op, group_item)
+        if tex2coords is not None:
+            tex2coords = [tuple(coord) for coord in tex2coords.tolist()]
+        else:
+            tex2coords = []
         for coord_item in group_item.iterfind("./m:tex2coord", material_ns):
             try:
                 u = float(coord_item.attrib.get("u", "0"))

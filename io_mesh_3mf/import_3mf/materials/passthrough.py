@@ -25,6 +25,7 @@ from typing import Dict
 import bpy
 
 from ...common import debug, warn
+from ..fast_parse import fast_array
 
 from ...common.types import (
     ResourceComposite,
@@ -113,6 +114,13 @@ def read_multiproperties(op, root, material_ns: Dict[str, str]) -> None:
         blendmethods = multi_item.attrib.get("blendmethods")
 
         multis = []
+        converted = fast_array(op, multi_item)
+        if converted is not None:
+            op.fast_arrays.setdefault("multiproperties", {})[multi_id] = converted
+            multis = [
+                {"pindices": " ".join(str(index) for index in row if index >= 0)}
+                for row in converted.tolist()
+            ]
         # Note: <multi> elements are in the core namespace, not materials namespace
         for m_item in multi_item.iterfind("./3mf:multi", {**MODEL_NAMESPACES, **material_ns}):
             pindices = m_item.attrib.get("pindices", "")

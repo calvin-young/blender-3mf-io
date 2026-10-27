@@ -27,6 +27,8 @@ Key improvement over the monolithic version: ``read_triangles`` and
 import xml.etree.ElementTree
 from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
 
+import numpy as np
+
 from ..common import (
     debug,
     warn,
@@ -35,12 +37,14 @@ from ..common import (
     PRODUCTION_NAMESPACE,
 )
 from ..common.types import (
+    TriangleMaterials,
     ResourceMaterial,
     ResourceObject,
     Component,
 )
 from ..common.metadata import Metadata, MetadataEntry
 from ..common.xml import parse_transformation
+from .fast_parse import fast_array
 
 if TYPE_CHECKING:
     from .context import ImportContext
@@ -69,8 +73,13 @@ def read_vertices(
 
     :param ctx: The import context (for ``safe_report``).
     :param object_node: An ``<object>`` element from the model file.
-    :return: List of ``(x, y, z)`` tuples.
+    :return: List of ``(x, y, z)`` tuples, or an array of shape (N, 3) if the
+        vertices were converted by :mod:`.fast_parse`.
     """
+    converted = fast_array(ctx, object_node.find("./3mf:mesh/3mf:vertices", MODEL_NAMESPACES))
+    if converted is not None:
+        return converted
+
     vertex_nodes = object_node.findall(
         "./3mf:mesh/3mf:vertices/3mf:vertex", MODEL_NAMESPACES
     )
@@ -153,18 +162,29 @@ def read_triangles(
     seam_strings: Dict[int, str] = {}
     support_strings: Dict[int, str] = {}
 
-    vertex_list = list(vertex_coords) if vertex_coords else []
-
-    # Per-object state for segmentation subdivision
-    state_materials: Dict[int, ResourceMaterial] = {}
-    paint_color_materials: Dict[str, ResourceMaterial] = {}
+    import_materials = ctx.options.import_materials
 
     # Default extruder
     default_extruder = 1
     if object_id:
         default_extruder = ctx.object_default_extruders.get(object_id, 1)
 
-    import_materials = ctx.options.import_materials
+    converted = fast_array(ctx, object_node.find("./3mf:mesh/3mf:triangles", MODEL_NAMESPACES))
+    if converted is not None:
+        return _read_converted_triangles(
+            ctx, converted, default_material, material_pid, vertex_coords, default_extruder, paint_only,
+        )
+
+    if isinstance(vertex_coords, np.ndarray):
+        # Converted vertices, but triangles that need the element-by-element path
+        # (e.g. paint attributes), which may add vertices to the list.
+        vertex_list = [tuple(vertex) for vertex in vertex_coords.tolist()]
+    else:
+        vertex_list = list(vertex_coords) if vertex_coords else []
+
+    # Per-object state for segmentation subdivision
+    state_materials: Dict[int, ResourceMaterial] = {}
+    paint_color_materials: Dict[str, ResourceMaterial] = {}
 
     # --- Fast path for geometry-only imports (no material / UV data needed) ---
     if import_materials == "NONE":
@@ -302,6 +322,216 @@ def read_triangles(
         support_strings,
         default_extruder,
     )
+
+
+def _read_converted_triangles(
+    ctx: "ImportContext",
+    converted: np.ndarray,
+    default_material: Optional[ResourceMaterial],
+    material_pid: Optional[str],
+    vertex_coords,
+    default_extruder: int,
+    paint_only: bool,
+):
+    """:func:`read_triangles` for triangles converted by :mod:`.fast_parse`.
+
+    Gives the same result as the element-by-element path, but resolves each
+    distinct property reference once instead of once per triangle.  Converted
+    triangles never carry paint attributes, so there are no segmentation strings.
+
+    :param converted: Array of shape (N, 7): v1 v2 v3 pid p1 p2 p3, -1 if absent.
+    """
+    triangles = converted[:, :3]
+    if ctx.options.import_materials == "NONE" or len(converted) == 0:
+        return triangles, [], None, vertex_coords, {}, {}, {}, default_extruder
+
+    count = len(converted)
+    materials = _MaterialNumbering(default_material, count)
+    triangle_uvs = None
+
+    if not paint_only:
+        pids = converted[:, 3]
+        for pid_value in np.unique(pids):
+            rows = np.flatnonzero(pids == pid_value)
+            pid = material_pid if pid_value < 0 else str(int(pid_value))
+            properties = converted[rows, 4:7]
+
+            if pid is not None and pid in ctx.resource_texture_groups:
+                from .materials import get_or_create_textured_material
+                texture_group = ctx.resource_texture_groups[pid]
+                materials.assign(rows, get_or_create_textured_material(ctx, pid, texture_group))
+                tex2coords = np.asarray(texture_group.tex2coords, dtype=np.float64).reshape(-1, 2)
+                # p1 defaults to 0; p2 and p3 default to p1.
+                first = np.where(properties[:, 0] < 0, 0, properties[:, 0])
+                indices = np.stack((
+                    first,
+                    np.where(properties[:, 1] < 0, first, properties[:, 1]),
+                    np.where(properties[:, 2] < 0, first, properties[:, 2]),
+                ), axis=1)
+                in_range = indices < len(tex2coords)
+                uvs = np.zeros((len(rows), 3, 2), dtype=np.float64)
+                uvs[in_range] = tex2coords[indices[in_range]]
+                if triangle_uvs is None:
+                    triangle_uvs = np.zeros((count, 3, 2), dtype=np.float64)
+                triangle_uvs[rows] = uvs
+
+            elif pid is not None and pid in ctx.resource_multiproperties:
+                uvs, has_uvs = _resolve_multiproperties_rows(
+                    ctx, pid, properties, default_material, materials, rows,
+                )
+                if has_uvs.any():
+                    if triangle_uvs is None:
+                        triangle_uvs = np.zeros((count, 3, 2), dtype=np.float64)
+                    triangle_uvs[rows[has_uvs]] = uvs[has_uvs]
+
+            else:
+                first = properties[:, 0]
+                for p1 in np.unique(first[first >= 0]):
+                    material = _resolve_standard_material(ctx, pid, str(int(p1)), default_material)
+                    materials.assign(rows[first == p1], material)
+
+    return (
+        triangles, materials.result(), triangle_uvs, vertex_coords, {}, {}, {}, default_extruder,
+    )
+
+
+class _MaterialNumbering:
+    """Builds a :class:`TriangleMaterials` by assigning materials to groups of triangles."""
+
+    def __init__(self, default_material: Optional[ResourceMaterial], count: int):
+        self.distinct = [default_material]
+        self.number_by_id = {id(default_material): 0}
+        self.numbers = np.zeros(count, dtype=np.int64)
+
+    def number(self, material: Optional[ResourceMaterial]) -> int:
+        key = id(material)
+        if key not in self.number_by_id:
+            self.number_by_id[key] = len(self.distinct)
+            self.distinct.append(material)
+        return self.number_by_id[key]
+
+    def assign(self, rows: np.ndarray, material: Optional[ResourceMaterial]) -> None:
+        self.numbers[rows] = self.number(material)
+
+    def result(self) -> TriangleMaterials:
+        return TriangleMaterials(self.distinct, self.numbers)
+
+
+def _multi_array(ctx: "ImportContext", multiprop_id: str) -> np.ndarray:
+    """The ``pindices`` of each ``<multi>`` as an int array padded with -1 (cached)."""
+    cache = ctx.fast_arrays.setdefault("multiproperties", {})
+    if multiprop_id not in cache:
+        rows = []
+        for multi in ctx.resource_multiproperties[multiprop_id].multis:
+            try:
+                rows.append([int(index) for index in multi.get("pindices", "").split()])
+            except ValueError:
+                rows.append([])
+        width = max((len(row) for row in rows), default=0)
+        array = np.full((len(rows), width), -1, dtype=np.int64)
+        for number, row in enumerate(rows):
+            array[number, :len(row)] = row
+        cache[multiprop_id] = array
+    return cache[multiprop_id]
+
+
+def _resolve_multiproperties_rows(
+    ctx: "ImportContext",
+    multiprop_id: str,
+    properties: np.ndarray,
+    default_material: Optional[ResourceMaterial],
+    materials: "_MaterialNumbering",
+    triangle_rows: np.ndarray,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Vectorized :func:`_resolve_multiproperties_material` for many triangles.
+
+    Assigns the materials of *triangle_rows* in *materials*.
+
+    :param properties: Array of shape (N, 3): p1 p2 p3 of each triangle, -1 if absent.
+    :return: ``(uvs, has_uvs)``: UVs of shape (N, 3, 2), and which triangles have UVs.
+    """
+    count = len(properties)
+    materials.assign(triangle_rows, default_material)
+    uvs = np.zeros((count, 3, 2), dtype=np.float64)
+    has_uvs = np.zeros(count, dtype=bool)
+
+    multis = _multi_array(ctx, multiprop_id)
+    pids = (ctx.resource_multiproperties[multiprop_id].pids or "").split()
+    first = properties[:, 0]
+    indices = np.stack((
+        first,
+        np.where(properties[:, 1] < 0, first, properties[:, 1]),
+        np.where(properties[:, 2] < 0, first, properties[:, 2]),
+    ), axis=1)
+    valid = (first >= 0) & (indices >= 0).all(axis=1) & (indices < len(multis)).all(axis=1)
+    if not valid.all():
+        warn(f"Multi index out of range for multiproperties {multiprop_id} "
+             f"on {int(count - valid.sum())} triangles")
+    # Multis with fewer pindices than layers: use the per-triangle code, which handles them.
+    lengths = (multis >= 0).sum(axis=1) if multis.size else np.zeros(len(multis), dtype=np.int64)
+    full = np.zeros(count, dtype=bool)
+    full[valid] = (lengths[indices[valid]] >= len(pids)).all(axis=1)
+    for row in np.flatnonzero(valid & ~full):
+        p1, p2, p3 = (None if value < 0 else str(int(value)) for value in properties[row])
+        material, row_uvs = _resolve_multiproperties_material(ctx, multiprop_id, p1, p2, p3, default_material)
+        materials.assign(triangle_rows[row], material)
+        if row_uvs is not None:
+            uvs[row] = row_uvs
+            has_uvs[row] = True
+
+    rows = np.flatnonzero(full)
+    if len(rows) == 0:
+        return uvs, has_uvs
+    pindices = multis[indices[rows]]  # (n, 3 vertices, layers)
+
+    material_layers = [i for i, pid in enumerate(pids) if pid in ctx.resource_materials]
+    texture_layers = [i for i, pid in enumerate(pids) if pid in ctx.resource_texture_groups]
+
+    # The material comes from the first basematerial/colorgroup layer of p1's multi.
+    keys = pindices[:, 0, material_layers] if material_layers else np.zeros((len(rows), 0), dtype=np.int64)
+    distinct, inverse = np.unique(keys, axis=0, return_inverse=True)
+    inverse = inverse.reshape(-1)
+    for which, key in enumerate(distinct.tolist()):
+        material = None
+        for layer, pindex in zip(material_layers, key):
+            group = ctx.resource_materials[pids[layer]]
+            if pindex in group:
+                material = group[pindex]
+                break
+        if material is None:
+            material = default_material
+        elif texture_layers:
+            texture_group_ids = [pids[layer] for layer in texture_layers]
+            original_basematerial = material
+            material = ResourceMaterial(
+                name=original_basematerial.name,
+                color=original_basematerial.color,
+                metallic=original_basematerial.metallic,
+                roughness=original_basematerial.roughness,
+                specular_color=original_basematerial.specular_color,
+                glossiness=original_basematerial.glossiness,
+                ior=original_basematerial.ior,
+                attenuation=original_basematerial.attenuation,
+                transmission=original_basematerial.transmission,
+                texture_id=texture_group_ids[0],
+                extra_texture_ids=tuple(texture_group_ids[1:]) if len(texture_group_ids) > 1 else None,
+            )
+            ctx.textured_to_basematerial_map[material] = original_basematerial
+        materials.assign(triangle_rows[rows[inverse == which]], material)
+
+    # UVs come from the last texture layer, per vertex.
+    if texture_layers:
+        layer = texture_layers[-1]
+        tex2coords = np.asarray(
+            ctx.resource_texture_groups[pids[layer]].tex2coords, dtype=np.float64
+        ).reshape(-1, 2)
+        uv_indices = pindices[:, :, layer]
+        in_range = uv_indices < len(tex2coords)
+        layer_uvs = np.zeros((len(rows), 3, 2), dtype=np.float64)
+        layer_uvs[in_range] = tex2coords[uv_indices[in_range]]
+        uvs[rows] = layer_uvs
+        has_uvs[rows] = True
+    return uvs, has_uvs
 
 
 # ---------------------------------------------------------------------------
@@ -720,7 +950,14 @@ def read_objects(
         )
 
         # Detect multiproperties at triangle level for passthrough
-        if objectid not in ctx.object_passthrough_pids and ctx.resource_multiproperties:
+        converted = fast_array(ctx, object_node.find("./3mf:mesh/3mf:triangles", MODEL_NAMESPACES))
+        if objectid not in ctx.object_passthrough_pids and ctx.resource_multiproperties and converted is not None:
+            for tri_pid in np.unique(converted[:, 3]).tolist():
+                if tri_pid >= 0 and str(tri_pid) in ctx.resource_multiproperties:
+                    ctx.object_passthrough_pids[objectid] = str(tri_pid)
+                    debug(f"Object {objectid} has triangle-level multiproperties pid={tri_pid}")
+                    break
+        elif objectid not in ctx.object_passthrough_pids and ctx.resource_multiproperties:
             for tri_node in object_node.iterfind(
                 "./3mf:mesh/3mf:triangles/3mf:triangle", MODEL_NAMESPACES
             ):
@@ -768,7 +1005,10 @@ def read_objects(
 
         triangle_sets = read_triangle_sets(ctx, object_node)
 
-        has_uvs = any(uv is not None for uv in triangle_uvs) if triangle_uvs else False
+        if isinstance(triangle_uvs, np.ndarray):
+            has_uvs = True
+        else:
+            has_uvs = any(uv is not None for uv in triangle_uvs) if triangle_uvs else False
 
         ctx.resource_objects[objectid] = ResourceObject(
             vertices=verts,

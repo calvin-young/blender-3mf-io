@@ -28,7 +28,7 @@ import mathutils
 import numpy as np
 
 from ..common import debug, warn
-from ..common.types import ResourceMaterial, ResourceObject
+from ..common.types import ResourceMaterial, ResourceObject, TriangleMaterials
 
 if TYPE_CHECKING:
     from .context import ImportContext
@@ -65,27 +65,27 @@ def create_mesh_from_data(
     :param resource_object: The resource object containing vertices and triangles.
     :return: A new :class:`bpy.types.Mesh`, or ``None`` if there are no triangles.
     """
-    if not resource_object.triangles:
+    if resource_object.triangles is None or len(resource_object.triangles) == 0:
         return None
 
     n_verts = len(resource_object.vertices)
     n_tris = len(resource_object.triangles)
 
     # Convert Python lists of 3-tuples to flat C arrays in one shot.
-    np_verts = np.asarray(resource_object.vertices, dtype=np.float64).ravel()
+    np_verts = np.asarray(resource_object.vertices, dtype=np.float32).ravel()
     np_tris = np.asarray(resource_object.triangles, dtype=np.int32).ravel()
 
     mesh = bpy.data.meshes.new("3MF Mesh")
 
     mesh.vertices.add(n_verts)
-    mesh.vertices.foreach_set("co", np_verts)
-
     mesh.loops.add(n_tris * 3)
-    mesh.loops.foreach_set("vertex_index", np_tris)
-
     mesh.polygons.add(n_tris)
+
+    # The generic attribute API copies whole buffers; the per-element
+    # properties (``co``, ``vertex_index``) are many times slower.
+    mesh.attributes["position"].data.foreach_set("vector", np_verts)
+    mesh.attributes[".corner_vert"].data.foreach_set("value", np_tris)
     mesh.polygons.foreach_set("loop_start", np.arange(0, n_tris * 3, 3, dtype=np.int32))
-    mesh.polygons.foreach_set("loop_total", np.full(n_tris, 3, dtype=np.int32))
 
     # calc_edges=True is required because edges are not set explicitly above.
     mesh.update(calc_edges=True)
@@ -656,9 +656,24 @@ def assign_materials_to_mesh(
     )
 
     materials_to_index: Dict[ResourceMaterial, int] = {}
-    material_indices = [0] * len(resource_object.materials)
 
-    for triangle_index, triangle_material in enumerate(resource_object.materials):
+    # Triangles share a few material objects.  Number them by identity (cheap)
+    # and resolve each distinct object once, instead of hashing every triangle.
+    if isinstance(resource_object.materials, TriangleMaterials):
+        distinct_materials = resource_object.materials.distinct
+        triangle_numbers = resource_object.materials.numbers
+    else:
+        by_id = {id(material): material for material in resource_object.materials}
+        distinct_materials = list(by_id.values())
+        number_of_id = {key: number for number, key in enumerate(by_id)}
+        triangle_numbers = np.fromiter(
+            (number_of_id[id(material)] for material in resource_object.materials),
+            dtype=np.int64,
+            count=len(resource_object.materials),
+        )
+    slot_of_number = np.zeros(len(distinct_materials), dtype=np.int64)
+
+    for number, triangle_material in enumerate(distinct_materials):
         if triangle_material is None:
             continue
 
@@ -734,11 +749,19 @@ def assign_materials_to_mesh(
             mesh.materials.append(ctx.resource_to_material[triangle_material])
             materials_to_index[triangle_material] = new_index
 
-        material_indices[triangle_index] = materials_to_index[triangle_material]
+        slot_of_number[number] = materials_to_index[triangle_material]
 
     # Batch assign
     if materials_to_index:
-        mesh.polygons.foreach_set("material_index", material_indices)
+        set_face_material_indices(mesh, slot_of_number[triangle_numbers])
+
+
+def set_face_material_indices(mesh: bpy.types.Mesh, indices) -> None:
+    """Set the material index of every face from a sequence of ints."""
+    attribute = mesh.attributes.get("material_index")
+    if attribute is None:
+        attribute = mesh.attributes.new("material_index", "INT", "FACE")
+    attribute.data.foreach_set("value", np.asarray(indices, dtype=np.int32))
 
 
 def _setup_textured_blender_material(
@@ -838,11 +861,18 @@ def apply_uv_coordinates(
     :param mesh: The Blender mesh.
     :param resource_object: Source data with per-triangle UV tuples.
     """
-    if not resource_object.triangle_uvs:
+    if resource_object.triangle_uvs is None or len(resource_object.triangle_uvs) == 0:
         return
 
     uv_layer = mesh.uv_layers.new(name="UVMap")
     if not uv_layer:
+        return
+
+    if isinstance(resource_object.triangle_uvs, np.ndarray):
+        mesh.attributes[uv_layer.name].data.foreach_set(
+            "vector", resource_object.triangle_uvs.astype(np.float32).ravel()
+        )
+        debug(f"Applied UV coordinates to mesh ({len(resource_object.triangle_uvs)} triangles)")
         return
 
     uv_data: List[float] = []

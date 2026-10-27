@@ -103,7 +103,7 @@ def build_items(
         _t_obj = _time.perf_counter()
         build_object(ctx, resource_object, transform, metadata, [objectid])
         _obj_elapsed = _time.perf_counter() - _t_obj
-        tris = len(resource_object.triangles) if resource_object.triangles else 0
+        tris = len(resource_object.triangles) if resource_object.triangles is not None else 0
         debug(
             f"[TIMING]     build obj {objectid}: {tris}t  {_obj_elapsed:.3f}s"
         )
@@ -141,7 +141,7 @@ def build_object(
     """
     # --- Component instance detection ---
     is_component_instance = (
-        not resource_object.triangles
+        (resource_object.triangles is None or len(resource_object.triangles) == 0)
         and resource_object.components
         and len(resource_object.components) == 1
     )

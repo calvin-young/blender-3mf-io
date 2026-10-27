@@ -139,6 +139,10 @@ class ImportContext:
     # Each entry is (mesh: bpy.types.Mesh, extruder_1based: int).
     pending_solid_paint_parts: List[Tuple[object, int]] = field(default_factory=list)
 
+    # Arrays converted by fast_parse.parse_model, keyed by their container element
+    # (<vertices>, <triangles>, <texture2dgroup>, <multiproperties>).
+    fast_arrays: Dict[object, object] = field(default_factory=dict)
+
     # Cache of external model paths already loaded — prevents re-opening the ZIP
     # and re-parsing the same file when multiple components share one path.
     loaded_external_paths: Set[str] = field(default_factory=set)
