@@ -381,6 +381,12 @@ class TestComponentsIncludeDisabled(Blender3mfTestCase):
 class TestThumbnailContentType(Blender3mfTestCase):
     """Thumbnail must have image/png content type for Windows Explorer."""
 
+    def _thumbnail_image(self):
+        """A small in-memory image to use as a custom thumbnail."""
+        img = bpy.data.images.new("ThumbTest", width=32, height=32, alpha=True)
+        img.pixels[:] = [1.0, 0.0, 0.0, 1.0] * (32 * 32)
+        return img
+
     def test_thumbnail_override_present(self):
         """[Content_Types].xml must have an Override for thumbnail.png = image/png."""
         bpy.ops.mesh.primitive_cube_add()
@@ -388,7 +394,8 @@ class TestThumbnailContentType(Blender3mfTestCase):
         result = bpy.ops.export_mesh.threemf(
             filepath=str(self.temp_file),
             use_orca_format="STANDARD",
-            thumbnail_mode="NONE",  # Don't render, just check the override exists
+            thumbnail_mode="CUSTOM",
+            thumbnail_image=self._thumbnail_image().name,
         )
         self.assertIn("FINISHED", result)
 
@@ -436,7 +443,8 @@ class TestThumbnailContentType(Blender3mfTestCase):
         result = bpy.ops.export_mesh.threemf(
             filepath=str(self.temp_file),
             use_orca_format="AUTO",
-            thumbnail_mode="NONE",
+            thumbnail_mode="CUSTOM",
+            thumbnail_image=self._thumbnail_image().name,
         )
         self.assertIn("FINISHED", result)
 
@@ -444,6 +452,21 @@ class TestThumbnailContentType(Blender3mfTestCase):
             ct_data = archive.read("[Content_Types].xml").decode("utf-8")
             # Must contain image/png somewhere (for the thumbnail override)
             self.assertIn("image/png", ct_data)
+
+    def test_no_thumbnail_override_without_thumbnail(self):
+        """Without a thumbnail, [Content_Types].xml must not mention one."""
+        bpy.ops.mesh.primitive_cube_add()
+
+        result = bpy.ops.export_mesh.threemf(
+            filepath=str(self.temp_file),
+            use_orca_format="STANDARD",
+            thumbnail_mode="NONE",
+        )
+        self.assertIn("FINISHED", result)
+
+        with zipfile.ZipFile(str(self.temp_file), "r") as archive:
+            ct_data = archive.read("[Content_Types].xml").decode("utf-8")
+            self.assertNotIn("thumbnail", ct_data.lower())
 
 
 if __name__ == "__main__":
