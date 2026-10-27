@@ -41,7 +41,7 @@ from .archive import write_core_properties
 from .components import collect_mesh_objects, detect_linked_duplicates, should_use_components
 from .geometry import (
     write_vertices, write_triangles, write_passthrough_triangles,
-    write_metadata, get_raw_geometry, clear_raw_geometry,
+    write_metadata, get_raw_geometry, clear_raw_geometry, WELL_KNOWN_METADATA,
 )
 from .materials import (
     write_materials,
@@ -815,11 +815,11 @@ class StandardExporter(BaseExporter):
                 "3mf:partnumber"
             ].value
             del metadata["3mf:partnumber"]
-        if metadata:
+        if any(str(entry.name) not in WELL_KNOWN_METADATA for entry in metadata.values()):
             metadatagroup_element = xml.etree.ElementTree.SubElement(
                 item_element, f"{{{MODEL_NAMESPACE}}}metadatagroup"
             )
-            write_metadata(metadatagroup_element, metadata, ctx.options.use_orca_format)
+            write_metadata(metadatagroup_element, metadata, ctx.options.use_orca_format, in_group=True)
 
     def write_object_resource(
         self,
@@ -1135,11 +1135,11 @@ class StandardExporter(BaseExporter):
                 if object_type != "model" and object_type != "other":
                     mesh_object_element.attrib[self.attr("type")] = object_type
                 del metadata["3mf:object_type"]
-            if metadata:
+            if any(str(entry.name) not in WELL_KNOWN_METADATA for entry in metadata.values()):
                 metadatagroup_element = xml.etree.ElementTree.SubElement(
                     object_element, f"{{{MODEL_NAMESPACE}}}metadatagroup"
                 )
-                write_metadata(metadatagroup_element, metadata, ctx.options.use_orca_format)
+                write_metadata(metadatagroup_element, metadata, ctx.options.use_orca_format, in_group=True)
 
         # Clean up the temporary mesh created by to_mesh()
         blender_object.to_mesh_clear()

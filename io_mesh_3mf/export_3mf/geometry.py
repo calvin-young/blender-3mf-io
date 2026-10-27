@@ -689,8 +689,15 @@ def write_passthrough_triangles(
     )
 
 
+# Metadata names the core specification defines for the model (Table 3-1).
+WELL_KNOWN_METADATA = frozenset({
+    "Title", "Designer", "Description", "Copyright", "LicenseTerms", "Rating",
+    "CreationDate", "ModificationDate", "Application",
+})
+
+
 def write_metadata(
-    node: xml.etree.ElementTree.Element, metadata: Metadata, use_orca_format: str
+    node: xml.etree.ElementTree.Element, metadata: Metadata, use_orca_format: str, in_group: bool = False
 ) -> None:
     """
     Writes metadata from a metadata storage into an XML node.
@@ -698,6 +705,9 @@ def write_metadata(
     :param node: The node to add <metadata> tags to.
     :param metadata: The collection of metadata to write to that node.
     :param use_orca_format: Material export mode — affects namespace handling.
+    :param in_group: The node is an object's or item's ``<metadatagroup>``.
+        The well-known names (Title, ...) are left out there: they describe the
+        model, and an object's or item's title is its ``name`` attribute.
     """
 
     def attr(name: str) -> str:
@@ -706,6 +716,8 @@ def write_metadata(
         return f"{{{MODEL_NAMESPACE}}}{name}"
 
     for metadata_entry in metadata.values():
+        if in_group and str(metadata_entry.name) in WELL_KNOWN_METADATA:
+            continue
         metadata_node = xml.etree.ElementTree.SubElement(
             node, f"{{{MODEL_NAMESPACE}}}metadata"
         )
