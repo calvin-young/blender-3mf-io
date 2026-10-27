@@ -846,6 +846,55 @@ class TestMultiproperties(MaterialsExtensionTestCase):
 
         self.assertEqual(len(orig_multis), len(exp_multis), "Multi count mismatch")
 
+    def test_multiproperties_without_textures_keeps_triangles(self):
+        """Triangles that use a material + color multiproperties group are still exported.
+
+        Like the 3MF Consortium's "CompositeAndMultiProperties" sample: other
+        triangles of the part are textured, so the mesh has a UV map.
+        """
+        import struct
+        import zlib
+
+        def chunk(kind, data):
+            return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+
+        png = (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 2, 2, 8, 2, 0, 0, 0))
+               + chunk(b"IDAT", zlib.compress(b"\x00" + b"\x09" * 6 + b"\x00" + b"\x09" * 6)) + chunk(b"IEND", b""))
+        corners = ((0, 2, 1), (0, 3, 2), (4, 5, 6), (4, 6, 7), (0, 1, 5), (0, 5, 4),
+                   (1, 2, 6), (1, 6, 5), (2, 3, 7), (2, 7, 6), (3, 0, 4), (3, 4, 7))
+        triangles = "".join(
+            f'<triangle v1="{a}" v2="{b}" v3="{c}" pid="3" p1="0" />' if i < 10 else
+            f'<triangle v1="{a}" v2="{b}" v3="{c}" pid="5" p1="0" p2="1" p3="2" />'
+            for i, (a, b, c) in enumerate(corners)
+        )
+        vertices = "".join(
+            f'<vertex x="{x}" y="{y}" z="{z}" />'
+            for x, y, z in ((0, 0, 0), (10, 0, 0), (10, 10, 0), (0, 10, 0),
+                            (0, 0, 10), (10, 0, 10), (10, 10, 10), (0, 10, 10))
+        )
+        model_xml = f'''<?xml version="1.0" encoding="UTF-8"?>
+<model xmlns="{NS_CORE}" xmlns:m="{NS_MATERIAL}" unit="millimeter">
+  <resources>
+    <basematerials id="1"><base name="Red" displaycolor="#FF0000" /></basematerials>
+    <m:colorgroup id="2"><m:color color="#FFFF00FF" /></m:colorgroup>
+    <m:multiproperties id="3" pids="1 2"><m:multi pindices="0 0" /></m:multiproperties>
+    <m:texture2d id="4" path="/3D/Texture/logo.png" contenttype="image/png" />
+    <m:texture2dgroup id="5" texid="4">
+      <m:tex2coord u="0" v="0" /><m:tex2coord u="1" v="0" /><m:tex2coord u="1" v="1" />
+    </m:texture2dgroup>
+    <object id="100" type="model" pid="1" pindex="0">
+      <mesh><vertices>{vertices}</vertices><triangles>{triangles}</triangles></mesh>
+    </object>
+  </resources>
+  <build><item objectid="100" /></build>
+</model>'''
+        input_path = self.create_test_3mf(model_xml, {"3D/Texture/logo.png": png})
+        output_path = get_temp_test_dir() / "multiprops_no_texture_out.3mf"
+        self.assertTrue(self.import_3mf(input_path), "Import failed")
+        self.assertTrue(self.export_3mf(output_path), "Export failed")
+        exported = self.extract_model_xml(output_path)
+        self.assertEqual(len(self.find_elements(exported, "triangle")), 12)
+
     def test_multiproperties_multiply_blend(self):
         """Multiproperties with multiply blendmethod should preserve."""
         model_xml = f'''<?xml version="1.0" encoding="UTF-8"?>
