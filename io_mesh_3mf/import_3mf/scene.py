@@ -674,7 +674,11 @@ def assign_materials_to_mesh(
         )
     slot_of_number = np.zeros(len(distinct_materials), dtype=np.int64)
 
-    for number, triangle_material in enumerate(distinct_materials):
+    # Give materials their slots in order of first use, skipping unused ones,
+    # the same order as assigning triangle by triangle.
+    used, first_use = np.unique(triangle_numbers, return_index=True)
+    for number in used[np.argsort(first_use)].tolist():
+        triangle_material = distinct_materials[number]
         if triangle_material is None:
             continue
 
