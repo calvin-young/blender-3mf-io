@@ -35,6 +35,7 @@ with ElementTree.
 import os
 import re
 import sys
+import types
 import xml.etree.ElementTree
 from typing import IO, Dict, List, Optional, Tuple, TYPE_CHECKING
 
@@ -97,8 +98,17 @@ def parse_model(ctx: "ImportContext", model_file: IO[bytes]) -> xml.etree.Elemen
         debug(f"Fast model parsing not used: {e}")
         root = None
     if root is None:
-        root = xml.etree.ElementTree.fromstring(data)
+        root = _parse_whole(data)
     return root
+
+
+def _parse_whole(data: bytes) -> xml.etree.ElementTree.Element:
+    """Parse a document with ElementTree, in pieces (expat takes less than 2 GB at a time)."""
+    parser = xml.etree.ElementTree.XMLParser()
+    view = memoryview(data)
+    for start in range(0, len(data), 1 << 26):
+        parser.feed(view[start:start + (1 << 26)])
+    return parser.close()
 
 
 def _parse_split(ctx: "ImportContext", data: bytes) -> Optional[xml.etree.ElementTree.Element]:
@@ -140,7 +150,7 @@ def _parse_split(ctx: "ImportContext", data: bytes) -> Optional[xml.etree.Elemen
         return None
     pieces.append(data[position:])
 
-    root = xml.etree.ElementTree.fromstring(b"".join(pieces))
+    root = _parse_whole(b"".join(pieces))
     del pieces
 
     elements = {}
@@ -177,8 +187,8 @@ def _convert_blocks(data: bytes, blocks) -> List[Optional[np.ndarray]]:
     tasks = []  # (block index, container, prefix, start, end)
     for index, ((container, prefix), start, end) in enumerate(blocks):
         open_tag = convert.block_kind(container, prefix).open_tag
-        for piece_start, piece_end in convert.chunk_bounds(memoryview(data)[start:end], open_tag, _PIECE_SIZE):
-            tasks.append((index, container, prefix, start + piece_start, start + piece_end))
+        for piece_start, piece_end in convert.chunk_bounds(data, start, end, open_tag, _PIECE_SIZE):
+            tasks.append((index, container, prefix, piece_start, piece_end))
 
     results = None
     total = sum(end - start for _, _, _, start, end in tasks)
@@ -224,8 +234,12 @@ def _convert_in_workers(data: bytes, tasks, workers: int) -> List[Optional[np.nd
         module = importlib.util.module_from_spec(spec)
         sys.modules[name] = module
         spec.loader.exec_module(module)
-    python_path = os.environ.get("PYTHONPATH")
-    os.environ["PYTHONPATH"] = directory + (os.pathsep + python_path if python_path else "")
+    # Workers get the parent's sys.path (environment variables may be ignored).
+    sys.path.insert(0, directory)
+    # Spawned workers re-import the parent's __main__ module, which in Blender
+    # may be a script that imports bpy.  They don't need it: hide it meanwhile.
+    main_module = sys.modules.get("__main__")
+    sys.modules["__main__"] = types.ModuleType("__main__")
     try:
         context = multiprocessing.get_context("spawn")
         with concurrent.futures.ProcessPoolExecutor(workers, mp_context=context) as pool:
@@ -237,10 +251,8 @@ def _convert_in_workers(data: bytes, tasks, workers: int) -> List[Optional[np.nd
             }
             return [futures[i].result() for i in range(len(tasks))]
     finally:
-        if python_path is None:
-            os.environ.pop("PYTHONPATH", None)
-        else:
-            os.environ["PYTHONPATH"] = python_path
+        sys.modules["__main__"] = main_module
+        sys.path.remove(directory)
 
 
 def fast_array(ctx: "ImportContext", element: Optional[xml.etree.ElementTree.Element]) -> Optional[np.ndarray]:

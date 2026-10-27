@@ -155,18 +155,17 @@ def block_kind(container: bytes, prefix: bytes) -> _BlockKind:
     return _KINDS[key]
 
 
-def chunk_bounds(block, open_tag: bytes, size: int) -> List[Tuple[int, int]]:
-    """Split *block* into pieces of about *size* bytes, each starting at a child element."""
+def chunk_bounds(data: bytes, start: int, end: int, open_tag: bytes, size: int) -> List[Tuple[int, int]]:
+    """Split ``data[start:end]`` into pieces of about *size* bytes, each starting at a child element."""
+    if start == end:
+        return [(start, end)]
     bounds = []
-    start = 0
-    if len(block) == 0:
-        return [(0, 0)]
-    while start < len(block):
-        end = block.find(open_tag, start + size) if start + size < len(block) else -1
-        if end < 0:
-            end = len(block)
-        bounds.append((start, end))
-        start = end
+    while start < end:
+        cut = data.find(open_tag, start + size, end) if start + size < end else -1
+        if cut < 0:
+            cut = end
+        bounds.append((start, cut))
+        start = cut
     return bounds
 
 
