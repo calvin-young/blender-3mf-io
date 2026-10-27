@@ -19,9 +19,13 @@ MIME types to archive entries, and preserving ``MustPreserve`` files.
 """
 
 import base64
+import io
+import mmap
 import re
+import struct
 import xml.etree.ElementTree
 import zipfile
+import zlib
 from typing import Dict, IO, List, Pattern, Tuple, TYPE_CHECKING
 
 import bpy
@@ -36,6 +40,7 @@ from ..common import (
     conflicting_mustpreserve_contents,
 )
 from ..common.annotations import Annotations, ContentType, Relationship
+from ..common.constants import MODEL_REL, RELS_NAMESPACE
 
 if TYPE_CHECKING:
     from .context import ImportContext
@@ -76,11 +81,93 @@ def read_archive(
             if mime_type not in result:
                 result[mime_type] = []
             result[mime_type].append(archive.open(fpath))
+        if not result.get(MODEL_MIMETYPE):
+            for target in _model_relationship_targets(archive):
+                stream = _recover_missing_entry(path, target)
+                if stream is not None:
+                    warn(f"Recovered {target}, which is missing from the ZIP directory of {path}")
+                    ctx.safe_report(
+                        {"WARNING"},
+                        f"The archive is damaged: {target} is missing from its ZIP directory "
+                        f"(for example a model over 4 GB written without ZIP64). It was recovered.",
+                    )
+                    result.setdefault(MODEL_MIMETYPE, []).append(stream)
     except (zipfile.BadZipFile, EnvironmentError) as e:
         error(f"Unable to read archive: {e}")
         ctx.safe_report({"ERROR"}, f"Unable to read archive: {e}")
         return result
     return result
+
+
+def _model_relationship_targets(archive: zipfile.ZipFile) -> List[str]:
+    """Model parts named by ``_rels/.rels`` that are missing from the ZIP directory."""
+    try:
+        root = xml.etree.ElementTree.fromstring(archive.read("_rels/.rels"))
+    except (KeyError, xml.etree.ElementTree.ParseError):
+        return []
+    names = set(archive.namelist())
+    targets = []
+    for relationship in root.iter(f"{{{RELS_NAMESPACE}}}Relationship"):
+        target = relationship.get("Target", "").lstrip("/")
+        if relationship.get("Type") == MODEL_REL and target and target not in names:
+            targets.append(target)
+    return targets
+
+
+class _DeflateStream(io.RawIOBase):
+    """Reads and inflates a ZIP entry's data starting at a file offset."""
+
+    def __init__(self, path: str, offset: int, name: str):
+        self.name = name  # Archive path, like ZipExtFile.name
+        self._file = open(path, "rb")
+        self._file.seek(offset)
+        self._inflate = zlib.decompressobj(-15)
+        self._pending = b""
+
+    def readable(self) -> bool:
+        return True
+
+    def readinto(self, buffer) -> int:
+        while len(self._pending) < len(buffer) and not self._inflate.eof:
+            chunk = self._file.read(1 << 22)
+            if not chunk:
+                break
+            self._pending += self._inflate.decompress(chunk)
+        count = min(len(buffer), len(self._pending))
+        buffer[:count] = self._pending[:count]
+        self._pending = self._pending[count:]
+        return count
+
+    def close(self) -> None:
+        self._file.close()
+        super().close()
+
+
+def _recover_missing_entry(path: str, name: str):
+    """Open a deflated ZIP entry that only has a local header (no central directory entry).
+
+    Some writers leave an entry out of the central directory, e.g. a model
+    larger than 4 GB written without ZIP64.  The local header and the data
+    are still there.
+
+    :return: A readable stream of the entry's contents, or None.
+    """
+    encoded = name.encode("utf-8")
+    try:
+        with open(path, "rb") as f, mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as data:
+            position = data.find(encoded)
+            while position >= 0:
+                header = position - 30
+                if header >= 0 and data[header:header + 4] == b"PK\x03\x04":
+                    method, = struct.unpack("<H", data[header + 8:header + 10])
+                    name_length, extra_length = struct.unpack("<HH", data[header + 26:header + 30])
+                    if name_length == len(encoded) and method == zipfile.ZIP_DEFLATED:
+                        start = header + 30 + name_length + extra_length
+                        return io.BufferedReader(_DeflateStream(path, start, name), 1 << 22)
+                position = data.find(encoded, position + 1)
+    except (OSError, ValueError, struct.error):
+        pass
+    return None
 
 
 # ---------------------------------------------------------------------------
