@@ -35,14 +35,21 @@ def build_blender_flags(blender_exe):
       -noaudio               Skip audio init (faster)
       -q / --quiet           Suppress Blender status spam
     """
-    return [
+    flags = [
         blender_exe,
         "--background",
         "--factory-startup",
         "--python-exit-code", "1",
         "-noaudio",
-        "-q",
     ]
+    # -q / --quiet is newer than Blender 4.2, which would try to open "-q" as a file.
+    try:
+        help_text = subprocess.run([blender_exe, "--help"], capture_output=True, text=True).stdout
+    except OSError:
+        help_text = ""
+    if "--quiet" in help_text:
+        flags.append("-q")
+    return flags
 
 
 def run_test_suite(blender_flags, script_name, suite_name):
