@@ -17,6 +17,18 @@ except ImportError:
     bpy = None
 
 
+def setUpModule():
+    """Register the add-on; these tests don't use Blender3mfTestCase, which does it per class."""
+    if bpy is None:
+        return
+    import io_mesh_3mf
+    try:
+        io_mesh_3mf.register()
+    except ValueError as e:
+        if "already registered" not in str(e):
+            raise
+
+
 @unittest.skipIf(bpy is None, "Blender API not available")
 class TestComponents(unittest.TestCase):
     """Test component/instance export and import."""
