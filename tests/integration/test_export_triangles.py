@@ -321,3 +321,29 @@ class ExportArchiveStructureTests(Blender3mfTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ExportUnusedTextureTests(Blender3mfTestCase):
+    """A textured material that no triangle uses doesn't produce an empty texture2dgroup."""
+
+    def test_no_empty_texture_group(self):
+        bpy.ops.mesh.primitive_cube_add()
+        cube = bpy.context.object
+        image = bpy.data.images.new("Unused", 4, 4)
+        for name, textured in (("Plain", False), ("Textured", True)):
+            material = bpy.data.materials.new(name)
+            material.use_nodes = True
+            if textured:
+                node = material.node_tree.nodes.new("ShaderNodeTexImage")
+                node.image = image
+                material.node_tree.links.new(
+                    node.outputs["Color"], material.node_tree.nodes["Principled BSDF"].inputs["Base Color"]
+                )
+            cube.data.materials.append(material)
+        # All faces use slot 0 (Plain); the textured material in slot 1 is unused.
+        bpy.ops.export_mesh.threemf(filepath=str(self.temp_file), use_orca_format="STANDARD")
+        with zipfile.ZipFile(str(self.temp_file)) as archive:
+            root = ET.fromstring(archive.read("3D/3dmodel.model"))
+        ns = "{http://schemas.microsoft.com/3dmanufacturing/material/2015/02}"
+        for group in root.iter(f"{ns}texture2dgroup"):
+            self.assertGreater(len(group), 0, "empty texture2dgroup written")
