@@ -142,6 +142,8 @@ class ImportContext:
     # Arrays converted by fast_parse.parse_model, keyed by their container element
     # (<vertices>, <triangles>, <texture2dgroup>, <multiproperties>).
     fast_arrays: Dict[object, object] = field(default_factory=dict)
+    # Layer data (import_3mf.layers.LayerData) of the object read_triangles read last.
+    last_layer_data: object = None
 
     # Cache of external model paths already loaded — prevents re-opening the ZIP
     # and re-parsing the same file when multiple components share one path.

@@ -42,6 +42,7 @@ __all__ = [
     "finalize_shared_solid_texture",
     "apply_triangle_sets",
     "apply_uv_coordinates",
+    "apply_layer_data",
     "set_object_origin",
     "apply_import_location",
     "apply_grid_layout",
@@ -704,6 +705,7 @@ def assign_materials_to_mesh(
                 if (
                     ctx.options.reuse_materials
                     and triangle_material.texture_id is None
+                    and not triangle_material.layers
                     and not has_pbr_textures
                 ):
                     material = find_existing_material(ctx, material_name, triangle_material.color)
@@ -713,7 +715,14 @@ def assign_materials_to_mesh(
                     material = bpy.data.materials.new(material_name)
                     material.use_nodes = True
 
-                    if triangle_material.texture_id is not None:
+                    if triangle_material.layers:
+                        from .materials.textures import setup_layered_material
+                        setup_layered_material(ctx, material, triangle_material)
+                        principled = bpy_extras.node_shader_utils.PrincipledBSDFWrapper(
+                            material, is_readonly=False
+                        )
+                        apply_pbr_to_principled(ctx, principled, material, triangle_material)
+                    elif triangle_material.texture_id is not None:
                         _setup_textured_blender_material(
                             ctx, material, triangle_material,
                             setup_textured_material, setup_multi_textured_material,
@@ -888,6 +897,32 @@ def apply_uv_coordinates(
 
     uv_layer.data.foreach_set("uv", uv_data)
     debug(f"Applied UV coordinates to mesh ({len(resource_object.triangle_uvs)} triangles)")
+
+
+def apply_layer_data(
+    mesh: bpy.types.Mesh,
+    resource_object: ResourceObject,
+) -> None:
+    """Create the UV maps and color attributes of layered materials (see :mod:`.layers`).
+
+    :param mesh: The Blender mesh.
+    :param resource_object: Source data with per-corner layer data.
+    """
+    from .layers import layer_uv_name, layer_color_name
+
+    for position, uvs in sorted((resource_object.layer_uvs or {}).items()):
+        uv_layer = mesh.uv_layers.new(name=layer_uv_name(position))
+        if uv_layer is None:
+            warn(f"Could not add UV map for texture layer {position} (Blender allows 8 UV maps)")
+            continue
+        mesh.attributes[uv_layer.name].data.foreach_set("vector", uvs.astype(np.float32).ravel())
+    if mesh.uv_layers.get("UVMap") is not None:
+        mesh.uv_layers.active = mesh.uv_layers["UVMap"]
+        mesh.uv_layers["UVMap"].active_render = True
+
+    for position, colors in sorted((resource_object.layer_colors or {}).items()):
+        attribute = mesh.color_attributes.new(layer_color_name(position), "FLOAT_COLOR", "CORNER")
+        attribute.data.foreach_set("color", colors.astype(np.float32).ravel())
 
 
 # ---------------------------------------------------------------------------

@@ -183,16 +183,20 @@ def store_passthrough_materials(op) -> None:
         scene["3mf_compositematerials"] = json.dumps(composites_data)
         debug(f"Stored {len(composites_data)} compositematerials for round-trip export")
 
-    # Store multiproperties
+    # Store multiproperties (except layered ones, which became Blender materials)
+    from ..layers import layer_kinds
     if op.resource_multiproperties:
         multiprops_data = {}
         for mp_id, mp in op.resource_multiproperties.items():
+            if layer_kinds(op, mp_id):
+                continue
             multiprops_data[mp_id] = {
                 "pids": mp.pids,
                 "blendmethods": mp.blendmethods,
                 "multis": mp.multis,
             }
-        scene["3mf_multiproperties"] = json.dumps(multiprops_data)
+        if multiprops_data:
+            scene["3mf_multiproperties"] = json.dumps(multiprops_data)
         debug(f"Stored {len(multiprops_data)} multiproperties for round-trip export")
 
     # Store texture metadata

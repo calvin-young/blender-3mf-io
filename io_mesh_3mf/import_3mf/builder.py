@@ -38,6 +38,7 @@ from .scene import (
     assign_materials_to_mesh,
     apply_triangle_sets,
     apply_uv_coordinates,
+    apply_layer_data,
     set_object_origin,
     apply_import_location,
 )
@@ -395,6 +396,7 @@ def _build_mesh(
 
     apply_triangle_sets(mesh, resource_object)
     apply_uv_coordinates(mesh, resource_object)
+    apply_layer_data(mesh, resource_object)
     debug(f"[TIMING]       uv+trisets:      {_time.perf_counter() - _t:.3f}s")
 
     return mesh

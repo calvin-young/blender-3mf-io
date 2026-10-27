@@ -45,6 +45,7 @@ from ..common.types import (
 from ..common.metadata import Metadata, MetadataEntry
 from ..common.xml import parse_transformation
 from .fast_parse import fast_array
+from .layers import LayerData, layer_kinds, resolve_layered_rows
 
 if TYPE_CHECKING:
     from .context import ImportContext
@@ -163,6 +164,7 @@ def read_triangles(
     support_strings: Dict[int, str] = {}
 
     import_materials = ctx.options.import_materials
+    ctx.last_layer_data = None
 
     # Default extruder
     default_extruder = 1
@@ -207,6 +209,10 @@ def read_triangles(
         return (
             vertices, [], None, vertex_list, {}, {}, {}, default_extruder
         )
+
+    # Triangles of layered multiproperties, resolved together after the loop:
+    # (triangle index, pid, p1, p2, p3)
+    pending_layered: List[Tuple[int, str, int, int, int]] = []
 
     for tri_index, triangle in enumerate(
         object_node.iterfind(
@@ -274,6 +280,14 @@ def read_triangles(
                 if not paint_only:
                     if pid is not None and pid in ctx.resource_texture_groups:
                         material, uvs = _resolve_texture_group(ctx, pid, p1, p2, p3)
+                    elif pid is not None and layer_kinds(ctx, pid):
+                        material = default_material  # Replaced after the loop.
+                        pending_layered.append((
+                            len(vertices), pid,
+                            -1 if p1 is None else int(p1),
+                            -1 if p2 is None else int(p2),
+                            -1 if p3 is None else int(p3),
+                        ))
                     elif pid is not None and pid in ctx.resource_multiproperties:
                         material, uvs = _resolve_multiproperties_material(
                             ctx, pid, p1, p2, p3, default_material
@@ -312,6 +326,25 @@ def read_triangles(
             ctx.safe_report({"WARNING"}, f"Vertex reference is not an integer: {e}")
             continue
 
+    layer_data = ctx.last_layer_data = None
+    if pending_layered:
+        layer_data = ctx.last_layer_data = LayerData(len(vertices))
+
+        def assign(rows, material):
+            for row in rows.tolist():
+                materials[row] = material
+
+        for pid in sorted({entry[1] for entry in pending_layered}):
+            entries = np.array([entry[2:] for entry in pending_layered if entry[1] == pid], dtype=np.int64)
+            rows = np.array([entry[0] for entry in pending_layered if entry[1] == pid], dtype=np.int64)
+            resolve_layered_rows(
+                ctx, pid, layer_kinds(ctx, pid), entries, rows, layer_data, assign, default_material,
+            )
+        if 0 in layer_data.uvs:
+            for row in np.flatnonzero(layer_data.uv_rows.pop(0)).tolist():
+                triangle_uvs[row] = tuple(map(tuple, layer_data.uvs[0][row].tolist()))
+            del layer_data.uvs[0]
+
     return (
         vertices,
         materials,
@@ -348,6 +381,7 @@ def _read_converted_triangles(
     count = len(converted)
     materials = _MaterialNumbering(default_material, count)
     triangle_uvs = None
+    layer_data = ctx.last_layer_data = LayerData(count)
 
     if not paint_only:
         pids = converted[:, 3]
@@ -375,6 +409,12 @@ def _read_converted_triangles(
                     triangle_uvs = np.zeros((count, 3, 2), dtype=np.float64)
                 triangle_uvs[rows] = uvs
 
+            elif pid is not None and layer_kinds(ctx, pid):
+                resolve_layered_rows(
+                    ctx, pid, layer_kinds(ctx, pid), properties, rows, layer_data,
+                    materials.assign, default_material,
+                )
+
             elif pid is not None and pid in ctx.resource_multiproperties:
                 uvs, has_uvs = _resolve_multiproperties_rows(
                     ctx, pid, properties, default_material, materials, rows,
@@ -390,6 +430,7 @@ def _read_converted_triangles(
                     material = _resolve_standard_material(ctx, pid, str(int(p1)), default_material)
                     materials.assign(rows[first == p1], material)
 
+    triangle_uvs = layer_data.merge_base_uvs(triangle_uvs)
     return (
         triangles, materials.result(), triangle_uvs, vertex_coords, {}, {}, {}, default_extruder,
     )
@@ -896,7 +937,8 @@ def read_objects(
 
         if pid is not None and pindex is not None:
             if pid in ctx.resource_multiproperties:
-                ctx.object_passthrough_pids[objectid] = pid
+                if not layer_kinds(ctx, pid):  # Layered groups become Blender materials.
+                    ctx.object_passthrough_pids[objectid] = pid
                 debug(f"Object {objectid} references multiproperties pid={pid}")
             else:
                 try:
@@ -941,6 +983,7 @@ def read_objects(
             support_strings,
             default_extruder,
         ) = read_triangles(ctx, object_node, material, pid, verts, objectid)
+        layer_data, ctx.last_layer_data = ctx.last_layer_data, None
         _tri_elapsed = _time.perf_counter() - _t_tri
         _total_verts += len(verts)
         _total_tris += len(triangles)
@@ -953,7 +996,10 @@ def read_objects(
         converted = fast_array(ctx, object_node.find("./3mf:mesh/3mf:triangles", MODEL_NAMESPACES))
         if objectid not in ctx.object_passthrough_pids and ctx.resource_multiproperties and converted is not None:
             for tri_pid in np.unique(converted[:, 3]).tolist():
-                if tri_pid >= 0 and str(tri_pid) in ctx.resource_multiproperties:
+                if (
+                    tri_pid >= 0 and str(tri_pid) in ctx.resource_multiproperties
+                    and not layer_kinds(ctx, str(tri_pid))
+                ):
                     ctx.object_passthrough_pids[objectid] = str(tri_pid)
                     debug(f"Object {objectid} has triangle-level multiproperties pid={tri_pid}")
                     break
@@ -962,7 +1008,7 @@ def read_objects(
                 "./3mf:mesh/3mf:triangles/3mf:triangle", MODEL_NAMESPACES
             ):
                 tri_pid = tri_node.attrib.get("pid")
-                if tri_pid and tri_pid in ctx.resource_multiproperties:
+                if tri_pid and tri_pid in ctx.resource_multiproperties and not layer_kinds(ctx, tri_pid):
                     ctx.object_passthrough_pids[objectid] = tri_pid
                     debug(f"Object {objectid} has triangle-level multiproperties pid={tri_pid}")
                     break
@@ -1018,6 +1064,8 @@ def read_objects(
             metadata=metadata,
             triangle_sets=triangle_sets,
             triangle_uvs=triangle_uvs if has_uvs else None,
+            layer_uvs=layer_data.uvs if layer_data and layer_data.uvs else None,
+            layer_colors=layer_data.colors if layer_data and layer_data.colors else None,
             segmentation_strings=segmentation_strings if segmentation_strings else None,
             seam_strings=seam_strings if seam_strings else None,
             support_strings=support_strings if support_strings else None,

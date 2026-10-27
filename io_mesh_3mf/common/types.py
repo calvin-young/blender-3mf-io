@@ -52,6 +52,9 @@ class ResourceObject:
     seam_strings: Optional[dict] = None
     support_strings: Optional[dict] = None
     default_extruder: Optional[int] = None
+    # Per-corner data of layered materials: layer position -> array (see import_3mf.layers)
+    layer_uvs: Optional[dict] = None
+    layer_colors: Optional[dict] = None
 
 
 class TriangleMaterials(Sequence):
@@ -115,6 +118,10 @@ class ResourceMaterial:
 
     # Multiproperties multi-texture support
     extra_texture_ids: Optional[List[str]] = None
+
+    # Layered multiproperties: one (kind, value, data name, blend) tuple per layer,
+    # see import_3mf.layers.  None for ordinary materials.
+    layers: Optional[tuple] = None
 
     def __hash__(self):
         """Hash based on name and color for use as dict keys / set members."""

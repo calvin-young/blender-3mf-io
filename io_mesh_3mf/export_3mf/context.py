@@ -92,6 +92,7 @@ class ExportContext:
 
     # --- Texture and PBR tracking -------------------------------------------
     texture_groups: Dict = field(default_factory=dict)
+    layered_export: object = None  # layers.LayeredExport when layered materials are exported
     pbr_material_names: Set[str] = field(default_factory=set)
 
     # --- Orca-specific ------------------------------------------------------
