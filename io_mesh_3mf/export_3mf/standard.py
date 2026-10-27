@@ -73,7 +73,7 @@ _IMPLICIT_NS = frozenset({
 })
 
 
-def _stream_model_to_file(f, root: xml.etree.ElementTree.Element) -> None:
+def _stream_model_to_file(output, root: xml.etree.ElementTree.Element) -> None:
     """Write the 3MF model XML to a binary file-like object *f* without using
     ElementTree's Python-level serialiser.
 
@@ -89,7 +89,30 @@ def _stream_model_to_file(f, root: xml.etree.ElementTree.Element) -> None:
 
     Namespace declarations are derived from ElementTree's registered namespace
     map (populated by ``register_namespace()`` calls earlier in the export).
+
+    Output is collected and written in large pieces: each write to a ZIP entry
+    is compressed separately, which is slow for many small writes.
     """
+    pending: list = []
+    pending_size = 0
+
+    class _Buffer:
+        @staticmethod
+        def write(data: bytes) -> None:
+            nonlocal pending_size
+            pending.append(data)
+            pending_size += len(data)
+            if pending_size >= 1 << 23:
+                flush()
+
+    def flush() -> None:
+        nonlocal pending_size
+        if pending:
+            output.write(b"".join(pending))
+            pending.clear()
+            pending_size = 0
+
+    f = _Buffer
     # Build uri→prefix from ElementTree's internal registry.
     # _namespace_map stores {uri: prefix}, so copy it directly.
     try:
@@ -167,8 +190,20 @@ def _stream_model_to_file(f, root: xml.etree.ElementTree.Element) -> None:
                 clear_raw_geometry(elem)
             # Always recurse into DOM children (handles triangle_sets,
             # metadatagroup, and passthrough <triangles> from write_passthrough_triangles).
-            for child in elem:
-                _write_element(child)
+            if len(elem) > 64 and all(len(child) == 0 and not child.text and not child.tail for child in elem):
+                # Many plain leaf elements (e.g. <tex2coord>, <color>, <multi>): format them in one go.
+                tag_names: dict = {}
+                parts = []
+                for child in elem:
+                    name = tag_names.get(child.tag)
+                    if name is None:
+                        name = tag_names[child.tag] = _qname(child.tag)
+                    attributes = " ".join(f'{_qname(k)}="{_attr_escape(v)}"' for k, v in child.attrib.items())
+                    parts.append(f"<{name} {attributes}/>" if attributes else f"<{name}/>")
+                f.write("".join(parts).encode("utf-8"))
+            else:
+                for child in elem:
+                    _write_element(child)
             f.write(f"</{tag_str}>".encode("utf-8"))
         else:
             f.write(f"<{tag_str}{attr_str}/>".encode("utf-8"))
@@ -178,6 +213,7 @@ def _stream_model_to_file(f, root: xml.etree.ElementTree.Element) -> None:
 
     f.write(b"<?xml version='1.0' encoding='UTF-8'?>\n")
     _write_element(root, is_root=True)
+    flush()
 
 
 def _is_object_excluded(obj: bpy.types.Object, ctx) -> bool:
