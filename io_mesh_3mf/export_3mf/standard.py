@@ -31,7 +31,7 @@ from typing import List, Set, Tuple, TYPE_CHECKING
 import bpy
 import mathutils
 
-from ..common.constants import MODEL_NAMESPACE, MODEL_LOCATION
+from ..common.constants import MATERIAL_NAMESPACE, MODEL_NAMESPACE, MODEL_LOCATION
 from ..common.extensions import TRIANGLE_SETS_EXTENSION, MATERIALS_EXTENSION
 from ..common.logging import debug, timing_debug, warn
 from ..common.metadata import Metadata
@@ -500,10 +500,6 @@ class StandardExporter(BaseExporter):
             for path in passthrough_image_paths:
                 all_texture_rels[path] = f"/{path}"
 
-        # Write all texture relationships in a single call
-        if all_texture_rels:
-            write_texture_relationships(archive, all_texture_rels)
-
         # Write passthrough materials (compositematerials, multiproperties, etc.)
         ctx.next_resource_id, passthrough_written, ctx.passthrough_id_remap = (
             write_passthrough_materials(resources_element, ctx.next_resource_id)
@@ -516,6 +512,16 @@ class StandardExporter(BaseExporter):
         self.write_objects(root, resources_element, blender_objects, global_scale)
         if ctx.layered_export is not None:
             ctx.layered_export.finish(resources_element)
+
+        # Write the texture relationships once everything is written, for every
+        # texture the model references: each pipeline (PBR, standard, layered,
+        # passthrough) skips images another one already wrote.
+        for texture in resources_element.iter(f"{{{MATERIAL_NAMESPACE}}}texture2d"):
+            path = texture.get("path")
+            if path and path not in all_texture_rels.values():
+                all_texture_rels[path] = path
+        if all_texture_rels:
+            write_texture_relationships(archive, all_texture_rels)
         timing_debug("StandardExporter.write_objects TOTAL", (time.perf_counter() - _t_objects) * 1000)
 
         # Re-register namespaces now that all extensions have been activated.

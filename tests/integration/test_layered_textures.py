@@ -281,3 +281,19 @@ class TestHandBuiltLayeredMaterial(LayeredTexturesTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestTextureRelationships(LayeredTexturesTestCase):
+    """Every texture the model references has a relationship, also after importing twice."""
+
+    def test_all_textures_have_relationships(self):
+        mesh = MESH.format(pid_a=3, pid_b=5, b1=0, b2=1, b3=2)
+        path = self.write_3mf(TEXTURE_RESOURCES, mesh, TEXTURES)
+        self.import_file(path)
+        self.import_file(path)  # A second copy, with its own images
+        root, names = self.export_model()
+        with zipfile.ZipFile(self.temp_file) as archive:
+            rels = archive.read("3D/_rels/3dmodel.model.rels").decode()
+        for texture in self.resources(root, "texture2d"):
+            self.assertIn(f'Target="{texture.get("path")}"', rels)
+            self.assertIn(texture.get("path").lstrip("/"), names)
