@@ -639,6 +639,8 @@ class Import3MF(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
         ctx.resource_to_material = {}
         ctx.textured_to_basematerial_map = {}
         ctx.component_instance_cache = {}
+        # Keyed by id() of this file's resource objects, which ends with the file.
+        ctx.item_mesh_cache = {}
         ctx.orca_filament_colors = {}
         ctx.object_default_extruders = {}
         ctx.part_subtypes = {}
