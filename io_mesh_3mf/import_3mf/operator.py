@@ -326,6 +326,8 @@ class Import3MF(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
     def _progress_begin(self, context: bpy.types.Context, message: str) -> None:
         self._progress_context = context
         self._progress_value = 0
+        self._progress_file_share = (0.0, 1.0)  # Start and span of the current file's share
+        self._progress_prefix = ""
         self._progress_window: Optional[ProgressReporter] = None
         wm = getattr(context, "window_manager", None)
         if wm:
@@ -359,12 +361,18 @@ class Import3MF(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
         ctx_bl = getattr(self, "_progress_context", None)
         if not ctx_bl:
             return
+        # With several files, each file's 0-100 maps onto its share of the bar.
+        start, span = self._progress_file_share
+        file_value = value
+        value = int(start + span * value)
         current = getattr(self, "_progress_value", 0)
         new_value = max(current, value)
         self._progress_value = new_value
         wm = getattr(ctx_bl, "window_manager", None)
         if wm and hasattr(wm, "progress_update"):
             wm.progress_update(new_value)
+        if message:
+            message = self._progress_prefix + message
         if message and wm and hasattr(wm, "status_text_set"):
             wm.status_text_set(message)
         # Forward to browser progress card.
@@ -376,7 +384,7 @@ class Import3MF(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
             _PHASE_BREAKS = [10, 50, 80, 100]
             phase_idx = 0
             for i, threshold in enumerate(_PHASE_BREAKS):
-                if new_value < threshold:
+                if file_value < threshold:
                     phase_idx = i
                     break
             else:
@@ -449,20 +457,14 @@ class Import3MF(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
         for file_idx, path in enumerate(paths):
             ctx.current_archive_path = path
             basename = os.path.basename(path)
+            # Each file gets an equal share of the bar, so it moves forward
+            # across many files rather than resetting 0→100 for each one.
+            self._progress_file_share = (file_idx * 100 / num_paths, 1 / num_paths)
+            self._progress_prefix = f"File {file_idx + 1}/{num_paths}: " if num_paths > 1 else ""
             self._progress_update(5, f"Reading {basename}...")
-            # Update browser progress card with per-file slice.
-            # Each file occupies an equal share of 0–95% (5% reserved for finalize).
-            # This lets the card show meaningful progress across many files rather
-            # than resetting 0→100 for each one.
-            pw = getattr(self, "_progress_window", None)
-            if pw is not None:
-                file_start = file_idx / num_paths * 0.95
-                pw.update(file_start, 0, f"File {file_idx + 1}/{num_paths}: {basename}")
             self._import_single_archive(ctx, path, context, scene_metadata, annotations)
-            # Mark this file complete in the browser card.
-            if pw is not None:
-                file_end = (file_idx + 1) / num_paths * 0.95
-                pw.update(file_end, 2, f"Loaded {basename}")
+        self._progress_file_share = (0.0, 1.0)
+        self._progress_prefix = ""
 
         # Store scene-level data.
         scene_metadata.store(bpy.context.scene)
@@ -571,8 +573,11 @@ class Import3MF(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
 
         # Parse each model file.
         for model_file in files_by_content_type.get(MODEL_MIMETYPE, []):
+            message = f"Reading {os.path.basename(path)}..."
             try:
-                root = parse_model(ctx, model_file)
+                root = parse_model(
+                    ctx, model_file, progress=lambda f: self._progress_update(5 + int(40 * f), message)
+                )
             except xml.etree.ElementTree.ParseError as e:
                 error(f"3MF document in {path} is malformed: {str(e)}")
                 ctx.safe_report({"ERROR"}, f"3MF document in {path} is malformed: {str(e)}")
@@ -654,7 +659,7 @@ class Import3MF(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
             read_orca_part_subtypes(ctx, path)
             debug(f"[TIMING]   part subtypes:    {_time.perf_counter() - _t:.3f}s")
 
-        self._progress_update(25, "Reading materials and objects...")
+        self._progress_update(45, "Reading materials and objects...")
 
         # Metadata.
         _t = _time.perf_counter()
@@ -667,11 +672,13 @@ class Import3MF(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
         debug(f"[TIMING]   materials:        {_time.perf_counter() - _t:.3f}s")
 
         # Extract texture images.
+        self._progress_update(48, "Reading textures...")
         _t = _time.perf_counter()
         _extract_textures_impl(ctx, path)
         debug(f"[TIMING]   textures:         {_time.perf_counter() - _t:.3f}s")
 
         # Objects.
+        self._progress_update(50, "Reading objects...")
         _t = _time.perf_counter()
         geometry_mod.read_objects(ctx, root)
         debug(f"[TIMING]   read_objects:     {_time.perf_counter() - _t:.3f}s  "

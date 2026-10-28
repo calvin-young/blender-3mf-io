@@ -76,7 +76,8 @@ def build_items(
 
     for idx, build_item in enumerate(build_items_list):
         if progress_callback and total_items > 0:
-            progress = 60 + int(((idx + 1) / total_items) * 35)
+            # Report before building, so a large item doesn't sit at "done".
+            progress = 60 + int((idx / total_items) * 35)
             progress_callback(progress, f"Building {idx + 1}/{total_items} objects...")
 
         try:
