@@ -630,6 +630,11 @@ class Import3MF(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
         ctx.resource_materials = {}
         ctx.resource_textures = {}
         ctx.resource_texture_groups = {}
+        # Resource IDs repeat across files, so these caches must not carry over
+        # from the previous file when several are imported at once.
+        ctx.resource_to_material = {}
+        ctx.textured_to_basematerial_map = {}
+        ctx.component_instance_cache = {}
         ctx.orca_filament_colors = {}
         ctx.object_default_extruders = {}
         ctx.part_subtypes = {}
