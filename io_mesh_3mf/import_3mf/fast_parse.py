@@ -37,7 +37,7 @@ import re
 import sys
 import types
 import xml.etree.ElementTree
-from typing import IO, Dict, List, Optional, Tuple, TYPE_CHECKING
+from typing import IO, Callable, Dict, List, Optional, Tuple, TYPE_CHECKING
 
 import numpy as np
 
@@ -62,6 +62,16 @@ _MAX_WORKERS = 16
 # found again after parsing.  It's removed before anyone else sees the tree.
 _MARKER = "threemf-fast-block"
 
+# Progress reporting: the model document is read in pieces of this size, and
+# the share of parse_model's progress each step gets (roughly its share of the
+# time for a large model).
+_READ_SIZE = 8 << 20
+_READ_SHARE = 0.3
+_CUT_SHARE = 0.1
+# Pieces per worker process, so the pieces finish one after another and the
+# conversion can report progress.
+_PIECES_PER_WORKER = 4
+
 _ROOT_TAG = re.compile(rb"<(?:[\w.-]+:)?model\b[^>]*>")
 _NS_DECLARATION = re.compile(rb"""\sxmlns(?::([\w.-]+))?\s*=\s*(["'])(.*?)\2""")
 
@@ -80,7 +90,11 @@ def _namespace_prefixes(data: bytes) -> Tuple[Dict[bytes, bytes], bytes]:
     return prefixes, b"".join(declarations)
 
 
-def parse_model(ctx: "ImportContext", model_file: IO[bytes]) -> xml.etree.ElementTree.Element:
+def parse_model(
+    ctx: "ImportContext",
+    model_file: IO[bytes],
+    progress: Optional[Callable[[float], None]] = None,
+) -> xml.etree.ElementTree.Element:
     """Parse a 3MF model document, converting bulky blocks with numpy.
 
     The converted arrays are stored in ``ctx.fast_arrays``, keyed by their
@@ -88,18 +102,39 @@ def parse_model(ctx: "ImportContext", model_file: IO[bytes]) -> xml.etree.Elemen
 
     :param ctx: The import context.
     :param model_file: A readable binary stream of the model document.
+    :param progress: Optional callable, given the fraction done (0 to 1) as parsing goes on.
     :return: The root ``<model>`` element.
     :raises xml.etree.ElementTree.ParseError: If the document is malformed.
     """
-    data = model_file.read()
+    report = progress or (lambda fraction: None)
+    data = _read(model_file, report)
     try:
-        root = _parse_split(ctx, data)
+        root = _parse_split(ctx, data, report)
     except Exception as e:  # Anything unexpected: parse the whole document normally.
         debug(f"Fast model parsing not used: {e}")
         root = None
     if root is None:
         root = _parse_whole(data)
+    report(1.0)
     return root
+
+
+def _read(model_file: IO[bytes], report: Callable[[float], None]) -> bytes:
+    """Read the whole stream, reporting progress if its size is known."""
+    # Streams from zipfile know their uncompressed size.
+    size = getattr(model_file, "_orig_file_size", None)
+    if not isinstance(size, int) or size <= _READ_SIZE:
+        return model_file.read()
+    chunks = []
+    done = 0
+    while True:
+        chunk = model_file.read(_READ_SIZE)
+        if not chunk:
+            break
+        chunks.append(chunk)
+        done += len(chunk)
+        report(_READ_SHARE * min(done / size, 1.0))
+    return b"".join(chunks)
 
 
 def _parse_whole(data: bytes) -> xml.etree.ElementTree.Element:
@@ -111,7 +146,9 @@ def _parse_whole(data: bytes) -> xml.etree.ElementTree.Element:
     return parser.close()
 
 
-def _parse_split(ctx: "ImportContext", data: bytes) -> Optional[xml.etree.ElementTree.Element]:
+def _parse_split(
+    ctx: "ImportContext", data: bytes, report: Callable[[float], None]
+) -> Optional[xml.etree.ElementTree.Element]:
     """Parse *data* with the bulky blocks cut out.  Returns None if not applicable."""
     prefixes, declarations = _namespace_prefixes(data)
     allowed = {}  # Container element prefix + name -> (container name, prefix)
@@ -152,6 +189,7 @@ def _parse_split(ctx: "ImportContext", data: bytes) -> Optional[xml.etree.Elemen
 
     root = _parse_whole(b"".join(pieces))
     del pieces
+    report(_READ_SHARE + _CUT_SHARE)
 
     elements = {}
     for element in root.iter():
@@ -162,7 +200,7 @@ def _parse_split(ctx: "ImportContext", data: bytes) -> Optional[xml.etree.Elemen
         return None
 
     converted = rehydrated = 0
-    for index, array in enumerate(_convert_blocks(data, blocks)):
+    for index, array in enumerate(_convert_blocks(data, blocks, report)):
         start, end = blocks[index][1:]
         if array is not None:
             ctx.fast_arrays[elements[index]] = array
@@ -178,30 +216,46 @@ def _parse_split(ctx: "ImportContext", data: bytes) -> Optional[xml.etree.Elemen
     return root
 
 
-def _convert_blocks(data: bytes, blocks) -> List[Optional[np.ndarray]]:
+def _convert_blocks(data: bytes, blocks, report: Callable[[float], None]) -> List[Optional[np.ndarray]]:
     """Convert every block, in worker processes for large models.
 
     Large blocks are split into pieces at child elements, so one huge mesh is
     spread over the workers too.
     """
+    total = sum(end - start for _, start, end in blocks)
+    parallel = total >= _PARALLEL_THRESHOLD and _worker_count() > 1
+    piece_size = _PIECE_SIZE
+    if parallel:
+        piece_size = max(1 << 20, min(_PIECE_SIZE, total // (_worker_count() * _PIECES_PER_WORKER)))
     tasks = []  # (block index, container, prefix, start, end)
     for index, ((container, prefix), start, end) in enumerate(blocks):
         open_tag = convert.block_kind(container, prefix).open_tag
-        for piece_start, piece_end in convert.chunk_bounds(data, start, end, open_tag, _PIECE_SIZE):
+        for piece_start, piece_end in convert.chunk_bounds(data, start, end, open_tag, piece_size):
             tasks.append((index, container, prefix, piece_start, piece_end))
 
+    start_share = _READ_SHARE + _CUT_SHARE
+    done = 0
+
+    def piece_done(size: int) -> None:
+        nonlocal done
+        done += size
+        if total:
+            report(start_share + (1.0 - start_share) * done / total)
+
     results = None
-    total = sum(end - start for _, _, _, start, end in tasks)
     workers = min(len(tasks), _worker_count())
-    if workers > 1 and total >= _PARALLEL_THRESHOLD:
+    if parallel and workers > 1:
         try:
-            results = _convert_in_workers(data, tasks, workers)
+            results = _convert_in_workers(data, tasks, workers, piece_done)
         except Exception as e:  # Anything going wrong with processes: do it here instead.
             warn(f"Converting the model in worker processes failed ({e}); continuing in Blender")
             results = None
     if results is None:
-        results = [convert.convert_piece(container, prefix, data[start:end])
-                   for _, container, prefix, start, end in tasks]
+        done = 0
+        results = []
+        for _, container, prefix, start, end in tasks:
+            results.append(convert.convert_piece(container, prefix, data[start:end]))
+            piece_done(end - start)
 
     pieces: List[List] = [[] for _ in blocks]
     for (index, *_), result in zip(tasks, results):
@@ -217,7 +271,9 @@ def _worker_count() -> int:
     return max(1, min(cpus - 1, _MAX_WORKERS))
 
 
-def _convert_in_workers(data: bytes, tasks, workers: int) -> List[Optional[np.ndarray]]:
+def _convert_in_workers(
+    data: bytes, tasks, workers: int, piece_done: Callable[[int], None]
+) -> List[Optional[np.ndarray]]:
     """Convert pieces in separate processes (Python runs one thread at a time per process)."""
     import concurrent.futures
     import importlib.util
@@ -246,10 +302,15 @@ def _convert_in_workers(data: bytes, tasks, workers: int) -> List[Optional[np.nd
             # Largest first, so the workers finish at about the same time.
             order = sorted(range(len(tasks)), key=lambda i: tasks[i][4] - tasks[i][3], reverse=True)
             futures = {
-                i: pool.submit(module.convert_piece, tasks[i][1], tasks[i][2], data[tasks[i][3]:tasks[i][4]])
+                pool.submit(module.convert_piece, tasks[i][1], tasks[i][2], data[tasks[i][3]:tasks[i][4]]): i
                 for i in order
             }
-            return [futures[i].result() for i in range(len(tasks))]
+            results = [None] * len(tasks)
+            for future in concurrent.futures.as_completed(futures):
+                i = futures[future]
+                results[i] = future.result()
+                piece_done(tasks[i][4] - tasks[i][3])
+            return results
     finally:
         sys.modules["__main__"] = main_module
         sys.path.remove(directory)
