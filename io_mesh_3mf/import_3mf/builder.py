@@ -20,6 +20,7 @@ scene-level helpers in :mod:`scene` for mesh creation, material assignment,
 UV setup, origin placement, etc.
 """
 
+import os
 from typing import List, Optional, TYPE_CHECKING
 
 import bpy
@@ -101,7 +102,9 @@ def build_items(
         transform @= parse_transformation(build_item.attrib.get("transform", ""))
 
         _t_obj = _time.perf_counter()
+        first_new = len(ctx.imported_objects)
         build_object(ctx, resource_object, transform, metadata, [objectid])
+        _name_part(ctx, resource_object, ctx.imported_objects[first_new:], total_items)
         _obj_elapsed = _time.perf_counter() - _t_obj
         tris = len(resource_object.triangles) if resource_object.triangles else 0
         debug(
@@ -109,6 +112,76 @@ def build_items(
         )
 
     debug(f"[TIMING]   build_items total: {_time.perf_counter() - _t0:.3f}s")
+
+
+def _name_part(
+    ctx: "ImportContext", resource_object: ResourceObject, created: list, total_items: int
+) -> None:
+    """Apply the Join Components and Object Names options to the objects one build item created.
+
+    :param created: The top-level objects the build item created.
+    """
+    if not created:
+        return
+    if ctx.options.join_components and (len(created) > 1 or created[0].children):
+        name = created[0].name
+        if resource_object.metadata is not None and "Title" in resource_object.metadata:
+            name = str(resource_object.metadata["Title"].value)
+        created = [_join_objects(ctx, created, name)]
+    if ctx.options.object_names == "FILE":
+        stem = os.path.splitext(os.path.basename(ctx.current_archive_path or ""))[0]
+        if stem:
+            if total_items == 1 and len(created) == 1:
+                created[0].name = stem
+            else:
+                for obj in created:
+                    obj.name = f"{stem}_{obj.name}"
+
+
+def _join_objects(ctx: "ImportContext", top_objects: list, name: str) -> bpy.types.Object:
+    """Join objects and their children into one mesh object called *name*.
+
+    :return: The joined object (the first one, if there's no mesh to join into).
+    """
+    hierarchy = []
+    for obj in top_objects:
+        hierarchy += [obj] + list(obj.children_recursive)
+    meshes = [obj for obj in hierarchy if obj.type == "MESH"]
+    if not meshes:
+        return top_objects[0]
+
+    hierarchy_names = [obj.name for obj in hierarchy]
+    target = meshes[0]
+    if target.data.users > 1:
+        target.data = target.data.copy()  # Don't change linked duplicates elsewhere.
+    world = target.matrix_world.copy()
+    if len(meshes) > 1:
+        with bpy.context.temp_override(
+            active_object=target, object=target,
+            selected_objects=meshes, selected_editable_objects=meshes,
+        ):
+            bpy.ops.object.join()
+    target.parent = None
+    target.matrix_world = world
+
+    # The join removed the other meshes; remove what's left (empties).
+    for other_name in hierarchy_names:
+        other = bpy.data.objects.get(other_name)
+        if other is not None and other != target:
+            bpy.data.objects.remove(other, do_unlink=True)
+    ctx.imported_objects = [obj for obj in ctx.imported_objects if _still_exists(obj)]
+    if target not in ctx.imported_objects:
+        ctx.imported_objects.append(target)
+    target.name = name
+    return target
+
+
+def _still_exists(obj: bpy.types.Object) -> bool:
+    """Whether a Blender object reference still points at an object."""
+    try:
+        return obj.name in bpy.data.objects
+    except ReferenceError:
+        return False
 
 
 # ---------------------------------------------------------------------------

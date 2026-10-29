@@ -218,6 +218,9 @@ class EXPORT_OT_threemf_preset(AddPresetBase, bpy.types.Operator):
 
     preset_values = [
         "op.use_selection",
+        "op.use_batch",
+        "op.batch_keep_hierarchy",
+        "op.part_names",
         "op.export_hidden",
         "op.include_disabled",
         "op.global_scale",
@@ -232,6 +235,11 @@ class EXPORT_OT_threemf_preset(AddPresetBase, bpy.types.Operator):
         "op.thumbnail_mode",
         "op.thumbnail_resolution",
     ]
+
+
+def _safe_filename(name: str) -> str:
+    """Make an object name usable as a file name, the way Blender's STL batch export does."""
+    return "".join("_" if char in ' /\\:*?"<>|' or ord(char) < 32 else char for char in name)
 
 
 # Cache for dynamic enum to prevent Blender GC issues.
@@ -320,6 +328,32 @@ class Export3MF(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
         name="Selection Only",
         description="Export selected objects only.",
         default=False,
+    )
+    use_batch: bpy.props.BoolProperty(
+        name="Batch",
+        description="Export each part to its own 3MF file, named like Blender's STL batch export: "
+                    "the file name typed here followed by the part name",
+        default=False,
+    )
+    batch_keep_hierarchy: bpy.props.BoolProperty(
+        name="Keep Hierarchies Together",
+        description="In a batch export, write an object and its children to one file. "
+                    "When off, every mesh object gets its own file",
+        default=True,
+    )
+    part_names: bpy.props.EnumProperty(
+        name="Part Names",
+        description="What to name the parts inside the 3MF file",
+        items=[
+            ("AUTO", "Automatic",
+             "File name for a file with one part, the object names for a file with several parts"),
+            ("FILE", "File Name",
+             "Name the part after the file. With several parts, the file name goes in front of each "
+             "object name"),
+            ("OBJECT", "Object Name", "The Blender object names"),
+            ("MESH", "Mesh Name", "The names of the objects' mesh data"),
+        ],
+        default="AUTO",
     )
     export_hidden: bpy.props.BoolProperty(
         name="Include Hidden",
@@ -501,6 +535,14 @@ class Export3MF(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
             self.subdivision_depth = prefs.preferences.default_subdivision_depth
             self.thumbnail_mode = prefs.preferences.default_thumbnail_mode
             self.thumbnail_resolution = prefs.preferences.default_thumbnail_resolution
+        if not self.filepath:
+            # Name the file after the part when exporting a single part
+            # (Blender's default is the .blend file's name).
+            parts = self._parts(context)
+            if len(parts) == 1:
+                import os
+                folder = os.path.dirname(context.blend_data.filepath)
+                self.filepath = os.path.join(folder, _safe_filename(parts[0].name) + self.filename_ext)
         self.report({"INFO"}, "Exporting, please wait...")
         return super().invoke(context, event)
 
@@ -553,6 +595,10 @@ class Export3MF(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
         if body:
             col = body.column(align=True)
             col.prop(self, "use_selection")
+            col.prop(self, "use_batch")
+            if self.use_batch:
+                col.prop(self, "batch_keep_hierarchy")
+            col.prop(self, "part_names")
             col.prop(self, "export_hidden")
             col.prop(self, "include_disabled")
             col.prop(self, "use_mesh_modifiers")
@@ -612,6 +658,7 @@ class Export3MF(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
                 if self.thumbnail_image == "__CUSTOM_PATH__"
                 else self.thumbnail_image
             ),
+            part_names=self.part_names,
         )
         return ExportContext(
             options=options,
@@ -619,6 +666,36 @@ class Export3MF(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
             filepath=self.filepath,
             extension_manager=ExtensionManager(),
         )
+
+    def _candidate_objects(self, context: bpy.types.Context) -> list:
+        """The objects this export starts from: the selection or the whole scene."""
+        return list(context.selected_objects) if self.use_selection else list(context.scene.objects)
+
+    def _parts(self, context: bpy.types.Context) -> list:
+        """Top-level objects that contain at least one exportable mesh."""
+        return [
+            obj for obj in self._candidate_objects(context)
+            if (obj.parent is None or (self.use_selection and not obj.parent.select_get()))
+            and collect_mesh_objects(
+                [obj], export_hidden=self.export_hidden, include_disabled=self.include_disabled
+            )
+        ]
+
+    def _batch_groups(self, context: bpy.types.Context) -> list:
+        """``(object, filepath)`` for each file of a batch export."""
+        import os
+        if self.batch_keep_hierarchy:
+            objects = self._parts(context)
+        else:
+            objects = collect_mesh_objects(
+                self._candidate_objects(context),
+                export_hidden=self.export_hidden,
+                include_disabled=self.include_disabled,
+            )
+        # Like Blender's STL batch export: the typed file name, then the object name.
+        prefix = os.path.splitext(self.filepath)[0]
+        return [(obj, prefix + _safe_filename(obj.name) + self.filename_ext)
+                for obj in objects]
 
     def execute(self, context: bpy.types.Context) -> Set[str]:
         """
@@ -628,18 +705,50 @@ class Export3MF(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
         :param context: The Blender context.
         :return: A set of status flags to indicate whether the write succeeded or not.
         """
+        if self.use_batch:
+            return self._execute_batch(context)
+        return self._export_file(context, self.filepath, None)
+
+    def _execute_batch(self, context: bpy.types.Context) -> Set[str]:
+        """Export each part to its own file."""
+        groups = self._batch_groups(context)
+        if not groups:
+            self.safe_report({"ERROR"}, "No mesh objects to export.")
+            return {"CANCELLED"}
+        written = 0
+        for blender_object, filepath in groups:
+            result = self._export_file(
+                context, filepath, [blender_object], single_object=not self.batch_keep_hierarchy
+            )
+            if result == {"FINISHED"}:
+                written += 1
+        self.safe_report({"INFO"}, f"Exported {written} of {len(groups)} 3MF files")
+        return {"FINISHED"} if written else {"CANCELLED"}
+
+    def _export_file(self, context: bpy.types.Context, filepath: str, objects,
+                     single_object: bool = False) -> Set[str]:
+        """Write one 3MF file.
+
+        :param objects: The objects to export, or None for the selection or scene.
+        :param single_object: Write only the given object, without its children.
+        """
         ctx = self._build_context()
+        ctx.filepath = filepath
+        ctx.options.single_object = single_object
 
         # ── Browser progress window (pre-flight heuristics) ──────────────────
         import os as _os
-        _filename = _os.path.basename(self.filepath) if self.filepath else "model.3mf"
+        _filename = _os.path.basename(filepath) if filepath else "model.3mf"
 
         # Compute hints cheaply before the archive is opened
-        _candidate_objects = (
-            list(context.selected_objects)
-            if self.use_selection
-            else list(context.scene.objects)
-        )
+        if objects is not None:
+            _candidate_objects = list(objects)
+        else:
+            _candidate_objects = (
+                list(context.selected_objects)
+                if self.use_selection
+                else list(context.scene.objects)
+            )
         _mesh_objs = [o for o in _candidate_objects if o.type == "MESH"]
         _tri_count = sum(len(o.data.polygons) for o in _mesh_objs if o.data)
         _has_paint = any(
@@ -667,13 +776,15 @@ class Export3MF(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
         ctx._progress_begin(context, "Exporting 3MF...")
 
         try:
-            archive = create_archive(self.filepath, ctx.safe_report, ctx.options.compression_level)
+            archive = create_archive(filepath, ctx.safe_report, ctx.options.compression_level)
             if archive is None:
                 return {"CANCELLED"}
 
             ctx._progress_update(5, "Preparing export...")
 
-            if ctx.options.use_selection:
+            if objects is not None:
+                blender_objects = objects
+            elif ctx.options.use_selection:
                 blender_objects = context.selected_objects
                 # Validate that at least one mesh object is in the selection
                 # (recursively, since meshes may be parented to empties).

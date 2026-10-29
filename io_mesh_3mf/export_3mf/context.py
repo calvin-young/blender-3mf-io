@@ -57,6 +57,8 @@ class ExportOptions:
     thumbnail_mode: str = "AUTO"  # "AUTO" | "CUSTOM" | "NONE"
     thumbnail_resolution: int = 256  # Width & height in pixels
     thumbnail_image: str = ""  # File path for CUSTOM mode
+    part_names: str = "OBJECT"  # "AUTO" | "FILE" | "OBJECT" | "MESH"
+    single_object: bool = False  # Batch export: write only the given object, without its children
 
 
 # ---------------------------------------------------------------------------
