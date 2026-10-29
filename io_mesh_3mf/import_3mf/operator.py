@@ -147,6 +147,23 @@ class Import3MF(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
                     "Prevents material duplication when re-importing edited files",
         default=True,
     )
+    object_names: bpy.props.EnumProperty(
+        name="Object Names",
+        description="What to name the imported objects",
+        items=[
+            ("PART", "Part Name", "Use the part names stored in the 3MF file"),
+            ("FILE", "File Name",
+             "Name each object after the 3MF file. With several parts in the file, "
+             "the file name is put in front of each part name"),
+        ],
+        default="PART",
+    )
+    join_components: bpy.props.BoolProperty(
+        name="Join Components",
+        description="Import a part made of several components as one object, "
+                    "instead of a parent with a child object per component",
+        default=False,
+    )
     import_location: bpy.props.EnumProperty(
         name="Location",
         description="Where to place imported objects in the scene",
@@ -260,6 +277,8 @@ class Import3MF(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
         box.label(text="Import Options:", icon="IMPORT")
         box.prop(self, "import_materials")
         box.prop(self, "reuse_materials")
+        box.prop(self, "object_names")
+        box.prop(self, "join_components")
 
         layout.separator()
         placement_box = layout.box()
@@ -438,6 +457,8 @@ class Import3MF(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
             paint_uv_method=self.paint_uv_method,
             paint_texture_size=int(self.paint_texture_size),
             shared_paint_texture=self.shared_paint_texture,
+            object_names=self.object_names,
+            join_components=self.join_components,
         )
         ctx = ImportContext(options=options, operator=self)
 

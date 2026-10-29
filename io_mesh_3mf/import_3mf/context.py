@@ -59,6 +59,8 @@ class ImportOptions:
     paint_uv_method: str = "SMART"  # "SMART" | "LIGHTMAP"
     paint_texture_size: int = 0  # 0 = auto
     shared_paint_texture: bool = True  # Pack all solid-paint parts into one shared UV texture
+    object_names: str = "PART"  # "PART" | "FILE"
+    join_components: bool = False  # One Blender object per part, even if it has several components
 
 
 # ---------------------------------------------------------------------------

@@ -21,7 +21,7 @@ class UnicodeObjectNamesTests(Blender3mfTestCase):
         cube = bpy.context.object
         cube.name = "丁七亇三角形"
 
-        result = bpy.ops.export_mesh.threemf(filepath=str(self.temp_file))
+        result = bpy.ops.export_mesh.threemf(filepath=str(self.temp_file), part_names="OBJECT")
 
         self.assertIn("FINISHED", result)
         self.assertTrue(self.temp_file.exists())

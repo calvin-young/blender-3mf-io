@@ -22,6 +22,7 @@ when the user does not select Orca or PrusaSlicer paint-segmentation output.
 from __future__ import annotations
 
 import collections
+import os
 import re
 import time
 import xml.etree.ElementTree
@@ -277,6 +278,26 @@ class BaseExporter:
         :param ctx: The ExportContext with settings and state.
         """
         self.ctx = ctx
+        self._parts = set()  # Objects written as build items (the "parts"); see part_name()
+
+    def part_name(self, blender_object: bpy.types.Object) -> str:
+        """The name to write for an object, following the Part Names option.
+
+        The option applies to the parts (build items) of the file.  Objects
+        inside a part's hierarchy keep their own names.
+        """
+        if blender_object not in self._parts:
+            return str(blender_object.name)
+        option = self.ctx.options.part_names
+        if option == "AUTO":
+            option = "FILE" if len(self._parts) == 1 else "OBJECT"
+        if option == "FILE":
+            stem = os.path.splitext(os.path.basename(self.ctx.filepath or ""))[0]
+            if stem:
+                return stem if len(self._parts) == 1 else f"{stem}_{blender_object.name}"
+        elif option == "MESH" and blender_object.type == "MESH" and blender_object.data is not None:
+            return str(blender_object.data.name)
+        return str(blender_object.name)
 
     def attr(self, name: str) -> str:
         """
@@ -713,16 +734,17 @@ class StandardExporter(BaseExporter):
             1
             for obj in blender_objects
             if not (_is_object_excluded(obj, ctx))
-            and obj.parent is None
+            and (obj.parent is None or ctx.options.single_object)
             and obj.type in {"MESH", "EMPTY"}
         )
         processed_objects = 0
+        self._parts = set(self._build_item_objects(blender_objects))
 
         for blender_object in blender_objects:
             if _is_object_excluded(blender_object, ctx):
                 hidden_skipped += 1
                 continue
-            if blender_object.parent is not None:
+            if blender_object.parent is not None and not ctx.options.single_object:
                 continue
             if blender_object.type not in {"MESH", "EMPTY"}:
                 continue
@@ -799,6 +821,27 @@ class StandardExporter(BaseExporter):
                 "Enable 'Include Hidden' or disable 'Skip Disabled' to export them.",
             )
 
+    def _build_item_objects(self, blender_objects) -> List[bpy.types.Object]:
+        """The objects :meth:`write_objects` writes as build items, in the same order."""
+        ctx = self.ctx
+        items = []
+        for blender_object in blender_objects:
+            if _is_object_excluded(blender_object, ctx):
+                continue
+            if blender_object.parent is not None and not ctx.options.single_object:
+                continue
+            if blender_object.type not in {"MESH", "EMPTY"}:
+                continue
+            if ctx.options.flatten_hierarchy and blender_object.type == "EMPTY":
+                items.extend(collect_mesh_objects(
+                    [blender_object],
+                    export_hidden=ctx.options.export_hidden,
+                    include_disabled=ctx.options.include_disabled,
+                ))
+            else:
+                items.append(blender_object)
+        return items
+
     def _write_build_item(
         self,
         build_element: xml.etree.ElementTree.Element,
@@ -851,7 +894,7 @@ class StandardExporter(BaseExporter):
             resources_element, f"{{{MODEL_NAMESPACE}}}object"
         )
         object_element.attrib[self.attr("id")] = str(new_resource_id)
-        object_name = str(blender_object.name)
+        object_name = self.part_name(blender_object)
         object_element.attrib[self.attr("name")] = object_name
 
         metadata = Metadata()
@@ -866,7 +909,8 @@ class StandardExporter(BaseExporter):
             blender_object.update_from_editmode()
         mesh_transformation = blender_object.matrix_world
 
-        child_objects = blender_object.children
+        # A batch export of single objects leaves the children to their own files.
+        child_objects = [] if ctx.options.single_object else blender_object.children
         components_element = None
         if child_objects:
             # Filter to MESH and EMPTY children (recurse into nested empties)
@@ -1411,7 +1455,7 @@ class StandardExporter(BaseExporter):
             resources_element, f"{{{MODEL_NAMESPACE}}}object"
         )
         object_element.attrib[self.attr("id")] = str(instance_id)
-        object_name = str(blender_object.name)
+        object_name = self.part_name(blender_object)
         object_element.attrib[self.attr("name")] = object_name
 
         components_element = xml.etree.ElementTree.SubElement(
