@@ -193,7 +193,7 @@ class ExportMetadataTests(Blender3mfTestCase):
         cube.name = "Named cube"
         cube["vendor:Note"] = {"datatype": "xs:string", "preserve": True, "value": "kept"}
 
-        bpy.ops.export_mesh.threemf(filepath=str(self.temp_file), use_orca_format="STANDARD")
+        bpy.ops.export_mesh.threemf(filepath=str(self.temp_file), use_orca_format="STANDARD", part_names="OBJECT")
 
         with zipfile.ZipFile(str(self.temp_file), "r") as archive:
             root = ET.fromstring(archive.read("3D/3dmodel.model"))
