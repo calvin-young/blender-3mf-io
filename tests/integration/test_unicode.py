@@ -212,7 +212,7 @@ class UnicodeRoundtripTests(Blender3mfTestCase):
         cube.name = original_name
 
         # Export
-        bpy.ops.export_mesh.threemf(filepath=str(self.temp_file))
+        bpy.ops.export_mesh.threemf(filepath=str(self.temp_file), part_names="OBJECT")
 
         # Clear scene
         bpy.ops.object.select_all(action="SELECT")
