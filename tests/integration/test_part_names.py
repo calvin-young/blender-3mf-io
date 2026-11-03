@@ -162,6 +162,15 @@ class TestOnePart(PartNameTestCase):
         self.assertEqual([obj.name for obj in objects], ["composite_names"])
         self.assertEqual(len(objects[0].data.vertices), 16)
 
+    def test_single_object_has_no_grouping_around_it(self):
+        self.clean_scene()
+        self.add_cube("only")
+        path = self.export_one("single_one_part.3mf")
+        self.assertEqual(part_names(path), ["single_one_part"])
+        with zipfile.ZipFile(path) as archive:
+            root = ET.fromstring(archive.read("3D/3dmodel.model"))
+        self.assertEqual(len(list(root.iter(f"{CORE}component"))), 0)
+
     def test_auto_format_uses_standard_so_parts_are_grouped(self):
         material = self.create_red_material()
         for obj in bpy.data.objects:
@@ -194,10 +203,31 @@ class TestBatchProgress(PartNameTestCase):
                 mock.patch.object(export_operator, "ProgressReporter") as reporter:
             self.export("card_.3mf", export_mode="BATCH")
         self.assertEqual(reporter.call_count, 1)
+        reporter.return_value.show_done.assert_called_once()
         reporter.return_value.finish.assert_called_once()
         percents = [call.args[0] for call in reporter.return_value.update.call_args_list]
         self.assertTrue(percents and max(percents) <= 1.0)
         self.assertGreater(max(percents), 0.5, "The card should cover both files")
+
+
+class TestFinishedExportNote(PartNameTestCase):
+    """A non-manifold mesh doesn't make a finished export look like a failure."""
+
+    def open_mesh(self):
+        mesh = bpy.data.meshes.new("open")
+        mesh.from_pydata([(0, 0, 0), (1, 0, 0), (0, 1, 0)], [], [(0, 1, 2)])
+        obj = bpy.data.objects.new("open", mesh)
+        bpy.context.collection.objects.link(obj)
+
+    def test_note_on_the_full_bar(self):
+        self.open_mesh()
+        from io_mesh_3mf.export_3mf import operator as export_operator
+        with mock.patch.object(export_operator, "get_progress_mode", return_value="VIEWPORT"), \
+                mock.patch.object(export_operator, "ProgressReporter") as reporter:
+            self.export("note.3mf")
+        args = reporter.return_value.show_done.call_args.args
+        self.assertIn("watertight", args[1])
+        self.assertEqual(args[2], export_operator.DONE_NOTE_SECONDS)
 
 
 class TestPreferencesMirrorOptions(unittest.TestCase):

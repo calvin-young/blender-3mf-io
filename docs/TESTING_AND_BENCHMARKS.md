@@ -44,13 +44,36 @@ layered textures flattened; quadratic UV lookup in passthrough export; textures 
 model metadata names in object metadata groups; internal `3mf:` metadata written; damaged ZIPs unreadable; one
 mesh copy per build item; Smooth by Angle silently skipped in Blender 4.2; test-runner flags for 4.2.
 
+## How readers count parts
+
+Three small synthetic files with the same two cubes, each written a different way. Linux readers were run on
+2026-11-03; Windows programs are still to do, apart from one real file a user opened by hand.
+
+| Reader | Components in one build item | One mesh with two shells | Two build items |
+|---|---|---|---|
+| This add-on (default) | 2 objects | 1 object | 2 objects |
+| This add-on (Join Components) | 1 object | 1 object | 2 objects |
+| lib3mf 2.x | 1 build item, 2 meshes | 1 build item, 1 mesh | 2 build items, 2 meshes |
+| OrcaSlicer 2.4.2 | 1 object, 2 parts | 1 object, 2 parts | 2 objects |
+| PrusaSlicer 2.9.6 | 2 objects | 1 object, 2 parts | 2 objects |
+| trimesh | 2 geometries | 1 geometry | 2 geometries |
+| assimp | 2 meshes | 1 mesh | 2 meshes |
+| Netfabb (user test, its import settings "Split 3MF Build Items" and "Use Components as Groups" on) | several parts | not tested | not tested |
+| HP SmartStream 3D Build Manager (user test) | 1 part | not tested | not tested |
+
+## Programs to test against
+
+Windows programs on the test VM: Netfabb, Rhino, MiniMagics, CAD Assistant, 3D Builder, Houdini. To add:
+**HP SmartStream 3D Build Manager**, the software that ships with HP Jet Fusion printers, so many users meet
+3MF files through it. Linux: OrcaSlicer, PrusaSlicer, lib3mf, trimesh, assimp.
+
 ## Blind spots (to test later)
 
 - **Netfabb and Magics** (Windows, Magics needs a license): open the fork's exports, especially layered
   textures, readable texture names, PBR display properties, components vs repeated build items, and the
   recovered (formerly damaged) builds. Then print a layered export, including label textures that are
   replaced at job submission.
-- **Other producers not in the corpus:** HP SmartStream 3D Build Manager, Autodesk Fusion / Inventor,
+- **Other producers not in the corpus:** Autodesk Fusion / Inventor,
   Microsoft 3D Builder, Materialise 3-matic, Siemens NX, SolidWorks, Rhino, 3D Systems 3D Sprint, Stratasys
   GrabCAD Print, Cura, Bambu Studio, nTopology.
 - **Extensions with little or no real-file coverage:** beam lattice, slices, secure content, volumetric,

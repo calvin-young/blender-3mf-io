@@ -279,6 +279,7 @@ class BaseExporter:
         """
         self.ctx = ctx
         self._parts = set()  # Objects written as build items (the "parts"); see part_name()
+        self._one_part = False  # Grouping several objects into one part
         self._one_part_members = []  # (object ID, transformation) when grouping into one part
 
     def part_name(self, blender_object: bpy.types.Object) -> str:
@@ -740,7 +741,9 @@ class StandardExporter(BaseExporter):
         processed_objects = 0
         items = self._build_item_objects(blender_objects)
         # When grouping into one part, the objects keep their names inside it.
-        self._parts = set() if ctx.options.one_part else set(items)
+        # A single object is that part already and needs no grouping around it.
+        self._one_part = ctx.options.one_part and len(items) > 1
+        self._parts = set() if self._one_part else set(items)
 
         for blender_object in blender_objects:
             if _is_object_excluded(blender_object, ctx):
@@ -817,7 +820,7 @@ class StandardExporter(BaseExporter):
                 blender_object,
             )
 
-        if ctx.options.one_part:
+        if self._one_part:
             self._write_one_part(resources_element, build_element, items)
 
         if hidden_skipped > 0:
@@ -888,7 +891,7 @@ class StandardExporter(BaseExporter):
     ) -> None:
         """Write a single ``<item>`` inside the ``<build>`` element."""
         ctx = self.ctx
-        if ctx.options.one_part:
+        if self._one_part:
             self._one_part_members.append((objectid, mesh_transformation))
             return
         item_element = xml.etree.ElementTree.SubElement(

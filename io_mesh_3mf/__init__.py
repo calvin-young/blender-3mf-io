@@ -156,7 +156,7 @@ class ThreeMFPreferences(bpy.types.AddonPreferences):
              "One 3MF file with all the objects grouped into a single part"),
             ("BATCH", "One File per Part (Batch)", "A 3MF file for each part"),
         ],
-        default="PARTS",
+        default="ONE_PART",
     )
     default_batch_keep_hierarchy: bpy.props.BoolProperty(
         name="Keep Hierarchies Together",

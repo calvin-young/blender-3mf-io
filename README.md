@@ -130,6 +130,20 @@ That includes both workflows the add-on supports:
 - a simple per-object or per-face material color workflow
 - the full paint workflow with editable paint, seam, and support layers
 
+**Export As** decides how the exported objects are arranged in 3MF files:
+
+| You want | Choose | What's in the file | Default name |
+|---|---|---|---|
+| A composite: treated as one part | **One Part in One File** (default) | One part made of components | Named after the file |
+| A build: several parts arrive together | **Separate Parts in One File** | One entry per part | Each part keeps its object name |
+| Many files, like Blender's STL batch export | **One File per Part (Batch)** | One file per part, named with the file name you typed as a prefix | Each part takes its file's name |
+
+**Part Names** can override the default name with the file name, object name or mesh name. Set your own defaults for these and every other option in the add-on's preferences.
+
+Other programs don't all treat components alike, so One Part may still appear as several parts in some of them. See [how readers count parts](docs/TESTING_AND_BENCHMARKS.md#how-readers-count-parts).
+
+On import, **Object Names** chooses between the part name in the file and the file name, and **Join Components** brings a part made of several components in as one object.
+
 The external guide pages walk through both workflows in detail:
 
 - [Standard export guide](https://clonecore.net/docs/3mf-guide/exporting-standard)

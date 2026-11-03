@@ -573,6 +573,8 @@ class Import3MF(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
         # Show paint popup if needed.
         self._show_paint_popup(ctx)
 
+        if self._progress_window is not None:
+            self._progress_window.show_done(len(PHASES["import"]) - 1, "Done")
         return {"FINISHED"}
 
     # ----- Per-archive pipeline ---------------------------------------------

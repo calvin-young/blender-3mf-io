@@ -40,7 +40,7 @@ from .geometry import check_non_manifold_geometry
 from .orca import OrcaExporter
 from .prusa import PrusaExporter
 from .standard import StandardExporter
-from ..progress import ProgressReporter, PHASES, get_progress_mode
+from ..progress import DONE_NOTE_SECONDS, DONE_SECONDS, ProgressReporter, PHASES, get_progress_mode
 
 # The top-level package name — works in both dev (io_mesh_3mf.export_3mf)
 # and installed-extension namespace (bl_ext.user_default.io_mesh_3mf.export_3mf).
@@ -855,6 +855,7 @@ class Export3MF(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
             reporter = ProgressReporter(mode)
             reporter.start(context, "export", f"{len(groups)} files", phases=PHASES["export"], can_cancel=False)
         written = 0
+        notes = 0
         try:
             for index, (blender_object, filepath) in enumerate(groups):
                 result = self._export_file(
@@ -864,6 +865,13 @@ class Export3MF(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
                 )
                 if result == {"FINISHED"}:
                     written += 1
+                    notes += bool(self._last_export_note)
+            if reporter is not None and written:
+                note = f"{notes} file(s) have parts that aren't watertight" if notes else ""
+                reporter.show_done(
+                    len(PHASES["export"]) - 1, f"Done. {note}" if note else "Done",
+                    DONE_NOTE_SECONDS if note else DONE_SECONDS,
+                )
         finally:
             if reporter is not None:
                 reporter.finish()
@@ -958,6 +966,7 @@ class Export3MF(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
                 blender_objects = context.scene.objects
 
             # Check for non-manifold geometry before export
+            non_manifold_objects = []
             mesh_objects = collect_mesh_objects(
                 blender_objects,
                 export_hidden=ctx.options.export_hidden,
@@ -968,11 +977,6 @@ class Export3MF(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
                     mesh_objects, ctx.options.use_mesh_modifiers
                 )
                 if non_manifold_objects:
-                    ctx.safe_report(
-                        {"WARNING"},
-                        "Exported geometry contains non-manifold issues. "
-                        "This may cause warnings in some slicers.",
-                    )
                     warn(f"Non-manifold geometry detected in: {non_manifold_objects[0]}")
 
             global_scale = export_unit_scale(context, ctx.options.global_scale)
@@ -1000,15 +1004,31 @@ class Export3MF(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
                 ctx.progress.update(0.05, 1, f"{len(mesh_objects)} object(s)")
 
             # Dispatch to format-specific exporter
-            if ctx.options.one_part and ctx.options.use_orca_format == "AUTO":
-                ctx.options.use_orca_format = "STANDARD"  # Only the standard format groups parts.
+            # Only the standard format groups parts. Painted parts stay with the slicer formats.
+            if (
+                ctx.options.one_part and ctx.options.use_orca_format == "AUTO"
+                and len(mesh_objects) > 1
+                and not any(obj.data.get("3mf_is_paint_texture") for obj in mesh_objects)
+            ):
+                ctx.options.use_orca_format = "STANDARD"
             exporter = _select_exporter(ctx, context, mesh_objects, has_materials)
-            if ctx.options.one_part and not isinstance(exporter, StandardExporter):
+            if ctx.options.one_part and len(mesh_objects) > 1 and not isinstance(exporter, StandardExporter):
                 ctx.safe_report({"WARNING"}, "One Part needs the Standard 3MF format; exported separate parts")
 
             result = exporter.execute(context, archive, blender_objects, global_scale)
             finished = result == {"FINISHED"}
             if finished:
+                # A note, not a warning: the export worked. Said last, so it isn't replaced.
+                note = ""
+                if mesh_objects and non_manifold_objects:
+                    note = f"{len(non_manifold_objects)} object(s) aren't watertight (non-manifold)"
+                    ctx.safe_report({"INFO"}, f"Exported. {note}; some slicers may warn about this.")
+                if progress is None and ctx.progress is not None:
+                    ctx.progress.show_done(
+                        len(PHASES["export"]) - 1, f"Done. {note}" if note else "Done",
+                        DONE_NOTE_SECONDS if note else DONE_SECONDS,
+                    )
+                self._last_export_note = note
                 _maybe_show_rating_nudge(context)
             return result
         finally:

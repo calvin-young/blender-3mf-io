@@ -400,6 +400,11 @@ def _draw_viewport_progress() -> None:
     gpu.state.blend_set("NONE")
 
 
+# How long a finished bar stays up: briefly, or longer when there's a note to read.
+DONE_SECONDS = 0.6
+DONE_NOTE_SECONDS = 2.5
+
+
 class ViewportProgressBar:
     """Lightweight in-viewport progress bar for medium-duration operations.
 
@@ -498,6 +503,14 @@ class ViewportProgressBar:
         })
         _write_vp_state(_VIEWPORT_STATE)
         self._force_redraw(throttle=True)
+
+    def show_done(self, phase_index: int, message: str, seconds: float) -> None:
+        """Show the bar full for a moment, so the result can be read before it goes."""
+        if not self._active:
+            return
+        self.update(1.0, phase_index, message)
+        self._force_redraw()
+        time.sleep(seconds)
 
     def finish(self) -> None:
         """Clear the bar, unregister the draw handler, and repaint.
@@ -621,6 +634,11 @@ class ProgressReporter:
         """Update progress (no-op for mode ``"NONE"``)."""
         if self._impl is not None:
             self._impl.update(percent, phase_index, message)  # type: ignore[union-attr]
+
+    def show_done(self, phase_index: int, message: str, seconds: float = DONE_SECONDS) -> None:
+        """Hold the indicator at 100% for a moment (no-op for mode ``"NONE"``)."""
+        if self._impl is not None:
+            self._impl.show_done(phase_index, message, seconds)  # type: ignore[union-attr]
 
     def finish(self) -> None:
         """Finish and tear down the indicator (no-op for mode ``"NONE"``)."""
