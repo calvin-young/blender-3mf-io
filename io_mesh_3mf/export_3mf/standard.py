@@ -699,6 +699,7 @@ class StandardExporter(BaseExporter):
                 blender_objects,
                 export_hidden=ctx.options.export_hidden,
                 include_disabled=ctx.options.include_disabled,
+                apply_modifiers=ctx.options.use_mesh_modifiers,
             )
 
             if component_groups and should_use_components(
@@ -792,6 +793,7 @@ class StandardExporter(BaseExporter):
                 component_groups
                 and blender_object.type == "MESH"
                 and blender_object.data in component_groups
+                and blender_object in component_groups[blender_object.data].objects
             ):
                 objectid = self._write_component_instance(
                     resources_element,

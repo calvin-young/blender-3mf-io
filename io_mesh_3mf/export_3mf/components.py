@@ -116,12 +116,18 @@ def is_export_root(obj: bpy.types.Object, exported: set) -> bool:
             return False
         parent = parent.parent
     return True
+def _looks_different_from_mesh(obj: bpy.types.Object, apply_modifiers: bool) -> bool:
+    """Whether an object's exported result depends on more than its mesh data."""
+    if apply_modifiers and any(modifier.show_viewport for modifier in obj.modifiers):
+        return True
+    return any(slot.link == "OBJECT" for slot in obj.material_slots)
 
 
 def detect_linked_duplicates(
     blender_objects: List[bpy.types.Object],
     export_hidden: bool = True,
     include_disabled: bool = False,
+    apply_modifiers: bool = False,
 ) -> Dict[bpy.types.Mesh, ComponentGroup]:
     """
     Detect linked duplicates — objects that share the same mesh data.
@@ -131,9 +137,14 @@ def detect_linked_duplicates(
     - Export the mesh once as a component definition
     - Export each object as an instance with just a transform
 
+    Objects that share mesh data but don't look the same (different modifiers,
+    or materials linked to the object) aren't instances of one mesh, and are
+    left out of the groups.
+
     :param blender_objects: List of Blender objects to analyze.
     :param export_hidden: Include hidden objects (default True).
     :param include_disabled: Include render-disabled objects (default False).
+    :param apply_modifiers: Modifiers are applied in the export (default False).
     :return: Dictionary mapping mesh data to ComponentGroup objects.
     """
     # Use collect_mesh_objects to find meshes at any nesting depth
@@ -144,6 +155,8 @@ def detect_linked_duplicates(
     mesh_to_objects: Dict[bpy.types.Mesh, List[bpy.types.Object]] = {}
 
     for obj in all_mesh_objects:
+        if _looks_different_from_mesh(obj, apply_modifiers):
+            continue
 
         mesh_data = obj.data
         if mesh_data not in mesh_to_objects:
