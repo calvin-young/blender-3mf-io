@@ -39,7 +39,7 @@ from ..common.metadata import Metadata
 from ..common.xml import format_transformation
 
 from .archive import write_core_properties
-from .components import collect_mesh_objects, detect_linked_duplicates, should_use_components
+from .components import collect_mesh_objects, detect_linked_duplicates, is_export_root, should_use_components
 from .geometry import (
     write_vertices, write_triangles, write_passthrough_triangles,
     write_metadata, get_raw_geometry, clear_raw_geometry, group_metadata_names,
@@ -730,13 +730,11 @@ class StandardExporter(BaseExporter):
         )
         hidden_skipped = 0
 
-        total_objects = sum(
-            1
-            for obj in blender_objects
-            if not (_is_object_excluded(obj, ctx))
-            and (obj.parent is None or ctx.options.single_object)
-            and obj.type in {"MESH", "EMPTY"}
-        )
+        exported = {
+            obj for obj in blender_objects
+            if obj.type in {"MESH", "EMPTY"} and not _is_object_excluded(obj, ctx)
+        }
+        total_objects = sum(1 for obj in exported if is_export_root(obj, exported))
         processed_objects = 0
         self._parts = set(self._build_item_objects(blender_objects))
 
@@ -744,9 +742,9 @@ class StandardExporter(BaseExporter):
             if _is_object_excluded(blender_object, ctx):
                 hidden_skipped += 1
                 continue
-            if blender_object.parent is not None and not ctx.options.single_object:
-                continue
             if blender_object.type not in {"MESH", "EMPTY"}:
+                continue
+            if not is_export_root(blender_object, exported):
                 continue
 
             processed_objects += 1
@@ -825,12 +823,16 @@ class StandardExporter(BaseExporter):
         """The objects :meth:`write_objects` writes as build items, in the same order."""
         ctx = self.ctx
         items = []
+        exported = {
+            obj for obj in blender_objects
+            if obj.type in {"MESH", "EMPTY"} and not _is_object_excluded(obj, ctx)
+        }
         for blender_object in blender_objects:
             if _is_object_excluded(blender_object, ctx):
                 continue
-            if blender_object.parent is not None and not ctx.options.single_object:
-                continue
             if blender_object.type not in {"MESH", "EMPTY"}:
+                continue
+            if not is_export_root(blender_object, exported):
                 continue
             if ctx.options.flatten_hierarchy and blender_object.type == "EMPTY":
                 items.extend(collect_mesh_objects(
