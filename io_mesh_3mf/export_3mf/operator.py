@@ -303,6 +303,23 @@ def _slicer_profile_items(self, context):
     return items
 
 
+def _discard_archive(archive, filepath: str) -> None:
+    """Close and remove the archive of an export that didn't finish.
+
+    An open file can't be deleted or replaced on Windows, and what's written so
+    far isn't a valid 3MF.
+    """
+    import os
+    try:
+        archive.close()
+    except Exception as e:
+        debug(f"Closing the unfinished archive failed: {e}")
+    try:
+        os.remove(filepath)
+    except OSError as e:
+        debug(f"Removing the unfinished archive failed: {e}")
+
+
 class Export3MF(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
     """
     Operator that exports a 3MF file from Blender.
@@ -666,6 +683,8 @@ class Export3MF(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
 
         ctx._progress_begin(context, "Exporting 3MF...")
 
+        archive = None
+        finished = False
         try:
             archive = create_archive(self.filepath, ctx.safe_report, ctx.options.compression_level)
             if archive is None:
@@ -739,11 +758,14 @@ class Export3MF(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
             exporter = _select_exporter(ctx, context, mesh_objects, has_materials)
 
             result = exporter.execute(context, archive, blender_objects, global_scale)
-            if result == {"FINISHED"}:
+            finished = result == {"FINISHED"}
+            if finished:
                 _maybe_show_rating_nudge(context)
             return result
         finally:
             ctx._progress_end()
+            if archive is not None and not finished:
+                _discard_archive(archive, self.filepath)
 
     # =========================================================================
     # Backward-compatible wrapper methods for unit tests

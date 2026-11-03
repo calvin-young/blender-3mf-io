@@ -847,7 +847,7 @@ class StandardExporter(BaseExporter):
         )
 
         if len(mesh.vertices) >= 3 and len(mesh.loop_triangles) > 0:
-            if child_objects:
+            if components_element is not None:
                 mesh_id = ctx.next_resource_id
                 ctx.next_resource_id += 1
                 mesh_object_element = xml.etree.ElementTree.SubElement(
