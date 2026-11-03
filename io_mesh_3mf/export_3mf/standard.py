@@ -279,6 +279,7 @@ class BaseExporter:
         """
         self.ctx = ctx
         self._parts = set()  # Objects written as build items (the "parts"); see part_name()
+        self._one_part_members = []  # (object ID, transformation) when grouping into one part
 
     def part_name(self, blender_object: bpy.types.Object) -> str:
         """The name to write for an object, following the Part Names option.
@@ -737,7 +738,9 @@ class StandardExporter(BaseExporter):
         }
         total_objects = sum(1 for obj in exported if is_export_root(obj, exported))
         processed_objects = 0
-        self._parts = set(self._build_item_objects(blender_objects))
+        items = self._build_item_objects(blender_objects)
+        # When grouping into one part, the objects keep their names inside it.
+        self._parts = set() if ctx.options.one_part else set(items)
 
         for blender_object in blender_objects:
             if _is_object_excluded(blender_object, ctx):
@@ -814,12 +817,42 @@ class StandardExporter(BaseExporter):
                 blender_object,
             )
 
+        if ctx.options.one_part:
+            self._write_one_part(resources_element, build_element, items)
+
         if hidden_skipped > 0:
             ctx.safe_report(
                 {"INFO"},
                 f"Skipped {hidden_skipped} hidden/disabled object(s). "
                 "Enable 'Include Hidden' or disable 'Skip Disabled' to export them.",
             )
+
+    def _write_one_part(self, resources_element, build_element, items) -> None:
+        """Write the objects collected by ``_write_build_item`` as one object with components."""
+        ctx = self.ctx
+        if not self._one_part_members:
+            return
+        option = ctx.options.part_names
+        name = os.path.splitext(os.path.basename(ctx.filepath or ""))[0]
+        if items and (option == "OBJECT" or not name):
+            name = str(items[0].name)
+        elif items and option == "MESH" and items[0].type == "MESH":
+            name = str(items[0].data.name)
+
+        part_id = ctx.next_resource_id
+        ctx.next_resource_id += 1
+        part_element = xml.etree.ElementTree.SubElement(resources_element, f"{{{MODEL_NAMESPACE}}}object")
+        part_element.attrib[self.attr("id")] = str(part_id)
+        part_element.attrib[self.attr("name")] = name
+        components_element = xml.etree.ElementTree.SubElement(part_element, f"{{{MODEL_NAMESPACE}}}components")
+        for objectid, transformation in self._one_part_members:
+            component = xml.etree.ElementTree.SubElement(components_element, f"{{{MODEL_NAMESPACE}}}component")
+            component.attrib[self.attr("objectid")] = str(objectid)
+            if transformation != mathutils.Matrix.Identity(4):
+                component.attrib[self.attr("transform")] = format_transformation(transformation)
+        item_element = xml.etree.ElementTree.SubElement(build_element, f"{{{MODEL_NAMESPACE}}}item")
+        item_element.attrib[self.attr("objectid")] = str(part_id)
+        ctx.num_written += 1
 
     def _build_item_objects(self, blender_objects) -> List[bpy.types.Object]:
         """The objects :meth:`write_objects` writes as build items, in the same order."""
@@ -855,6 +888,9 @@ class StandardExporter(BaseExporter):
     ) -> None:
         """Write a single ``<item>`` inside the ``<build>`` element."""
         ctx = self.ctx
+        if ctx.options.one_part:
+            self._one_part_members.append((objectid, mesh_transformation))
+            return
         item_element = xml.etree.ElementTree.SubElement(
             build_element, f"{{{MODEL_NAMESPACE}}}item"
         )

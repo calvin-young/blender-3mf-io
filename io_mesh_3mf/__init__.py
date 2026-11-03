@@ -146,6 +146,37 @@ class ThreeMFPreferences(bpy.types.AddonPreferences):
     )
 
     # Export behavior settings
+    default_export_mode: bpy.props.EnumProperty(
+        name="Export As",
+        description="How the exported objects are arranged in 3MF files",
+        items=[
+            ("PARTS", "Separate Parts in One File",
+             "One 3MF file with each object as its own part, as in a build"),
+            ("ONE_PART", "One Part in One File",
+             "One 3MF file with all the objects grouped into a single part"),
+            ("BATCH", "One File per Part (Batch)", "A 3MF file for each part"),
+        ],
+        default="PARTS",
+    )
+    default_batch_keep_hierarchy: bpy.props.BoolProperty(
+        name="Keep Hierarchies Together",
+        description="In a batch export, write an object and its children to one file",
+        default=True,
+    )
+    default_part_names: bpy.props.EnumProperty(
+        name="Part Names",
+        description="What to name the parts inside the 3MF file",
+        items=[
+            ("AUTO", "Automatic",
+             "File name for a file with one part, the object names for a file with several parts"),
+            ("FILE", "File Name",
+             "Name the part after the file. With several parts, the file name goes in front of each "
+             "object name"),
+            ("OBJECT", "Object Name", "The Blender object names"),
+            ("MESH", "Mesh Name", "The names of the objects' mesh data"),
+        ],
+        default="AUTO",
+    )
     default_use_selection: bpy.props.BoolProperty(
         name="Selection Only",
         description="Export selected objects only",
@@ -207,6 +238,7 @@ class ThreeMFPreferences(bpy.types.AddonPreferences):
         soft_max=1000.0,
         min=1e-6,
         max=1e6,
+        precision=4,
     )
 
     default_import_global_scale: bpy.props.FloatProperty(
@@ -217,6 +249,7 @@ class ThreeMFPreferences(bpy.types.AddonPreferences):
         soft_max=1000.0,
         min=1e-6,
         max=1e6,
+        precision=4,
     )
 
     # Import behavior settings
@@ -246,6 +279,22 @@ class ThreeMFPreferences(bpy.types.AddonPreferences):
         default=True,
     )
 
+    default_object_names: bpy.props.EnumProperty(
+        name="Object Names",
+        description="What to name the imported objects",
+        items=[
+            ("PART", "Part Name", "Use the part names stored in the 3MF file"),
+            ("FILE", "File Name",
+             "Name each object after the 3MF file. With several parts in the file, "
+             "the file name is put in front of each part name"),
+        ],
+        default="PART",
+    )
+    default_join_components: bpy.props.BoolProperty(
+        name="Join Components",
+        description="Import a part made of several components as one object",
+        default=False,
+    )
     default_import_location: bpy.props.EnumProperty(
         name="Import Location",
         description="Default location for imported objects",
@@ -493,9 +542,15 @@ class ThreeMFPreferences(bpy.types.AddonPreferences):
         header.label(text="Geometry", icon="MESH_DATA")
         if body:
             col = body.column(align=True)
+            col.prop(self, "default_export_mode", text="")
+            if self.default_export_mode == "BATCH":
+                col.prop(self, "default_batch_keep_hierarchy")
+            col.prop(self, "default_part_names")
             col.prop(self, "default_use_selection")
-            col.prop(self, "default_export_hidden", text="Include Hidden")
-            col.prop(self, "default_include_disabled", text="Include Disabled")
+            sub = col.column(align=True)
+            sub.enabled = not self.default_use_selection
+            sub.prop(self, "default_export_hidden", text="Include Hidden")
+            sub.prop(self, "default_include_disabled", text="Include Disabled")
             col.prop(self, "default_apply_modifiers")
             col.prop(self, "default_use_components")
             col.prop(self, "default_flatten_hierarchy")
@@ -530,6 +585,8 @@ class ThreeMFPreferences(bpy.types.AddonPreferences):
         box.label(text="Import Options:", icon="IMPORT")
         box.prop(self, "default_import_materials", text="Material Mode")
         box.prop(self, "default_reuse_materials")
+        box.prop(self, "default_object_names")
+        box.prop(self, "default_join_components")
 
         layout.separator()
         placement_box = layout.box()

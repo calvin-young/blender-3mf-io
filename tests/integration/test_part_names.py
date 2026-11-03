@@ -8,6 +8,7 @@ or the file, and can join a part's components into one object.
 
 import os
 import unittest
+from unittest import mock
 import xml.etree.ElementTree as ET
 import zipfile
 
@@ -104,7 +105,7 @@ class TestBatchExport(PartNameTestCase):
         self.add_cube("Handle - Cap", location=(0, -5, 0))
 
     def test_keeps_hierarchies_together(self):
-        self.export("batch_.3mf", use_batch=True)
+        self.export("batch_.3mf", export_mode="BATCH")
         self.assertTrue(os.path.exists(self.path("batch_assembly.3mf")))
         self.assertTrue(os.path.exists(self.path("batch_Handle_-_Cap.3mf")))
         self.assertFalse(os.path.exists(self.path("batch_.3mf")))
@@ -114,7 +115,7 @@ class TestBatchExport(PartNameTestCase):
         self.assertEqual(model.count("<mesh>") + model.count("<mesh "), 2, "Both children in the file")
 
     def test_one_file_per_mesh(self):
-        self.export("each_.3mf", use_batch=True, batch_keep_hierarchy=False)
+        self.export("each_.3mf", export_mode="BATCH", batch_keep_hierarchy=False)
         for name in ("wheel", "axle", "Handle_-_Cap"):
             path = self.path(f"each_{name}.3mf")
             self.assertTrue(os.path.exists(path), path)
@@ -126,6 +127,113 @@ class TestBatchExport(PartNameTestCase):
         bpy.ops.import_mesh.threemf(filepath=self.path("each_axle.3mf"))
         meshes = [obj for obj in bpy.data.objects if obj.type == "MESH"]
         self.assertEqual([len(obj.data.vertices) for obj in meshes], [8])
+
+
+class TestOnePart(PartNameTestCase):
+    """Export As: One Part in One File."""
+
+    def setUp(self):
+        super().setUp()
+        self.add_cube("strap")
+        self.add_cube("buckle", location=(3, 0, 0))
+
+    def export_one(self, name, **options):
+        return self.export(name, export_mode="ONE_PART", use_orca_format="STANDARD", **options)
+
+    def test_one_build_item_named_after_the_file(self):
+        path = self.export_one("composite.3mf")
+        self.assertEqual(part_names(path), ["composite"])
+
+    def test_object_name_option(self):
+        path = self.export_one("composite_object.3mf", part_names="OBJECT")
+        self.assertIn(part_names(path)[0], ("strap", "buckle"))
+
+    def test_components_keep_their_names_and_places(self):
+        path = self.export_one("composite_names.3mf", export_location="KEEP", global_scale=0.001)
+        with zipfile.ZipFile(path) as archive:
+            root = ET.fromstring(archive.read("3D/3dmodel.model"))
+        names = [obj.get("name") for obj in root.iter(f"{CORE}object")]
+        self.assertEqual(sorted(names), ["buckle", "composite_names", "strap"])
+        self.assertEqual(len(list(root.iter(f"{CORE}component"))), 2)
+
+        self.clean_scene()
+        bpy.ops.import_mesh.threemf(filepath=path, join_components=True)
+        objects = list(bpy.data.objects)
+        self.assertEqual([obj.name for obj in objects], ["composite_names"])
+        self.assertEqual(len(objects[0].data.vertices), 16)
+
+    def test_auto_format_uses_standard_so_parts_are_grouped(self):
+        material = self.create_red_material()
+        for obj in bpy.data.objects:
+            obj.data.materials.append(material)
+        path = self.path("composite_auto.3mf")
+        bpy.ops.export_mesh.threemf(filepath=path, export_mode="ONE_PART")
+        self.assertEqual(part_names(path), ["composite_auto"])
+
+
+class TestSelectionOnly(PartNameTestCase):
+    """Selection Only exports what's selected, whatever the Include options say."""
+
+    def test_selected_render_disabled_object_is_exported(self):
+        cube = self.add_cube("disabled")
+        cube.hide_render = True
+        self.add_cube("other", location=(3, 0, 0))
+        bpy.ops.object.select_all(action="DESELECT")
+        cube.select_set(True)
+        path = self.export("selected_disabled.3mf", use_selection=True, part_names="OBJECT")
+        self.assertEqual(part_names(path), ["disabled"])
+
+
+class TestBatchProgress(PartNameTestCase):
+
+    def test_one_progress_card_for_the_batch(self):
+        self.add_cube("a")
+        self.add_cube("b", location=(3, 0, 0))
+        from io_mesh_3mf.export_3mf import operator as export_operator
+        with mock.patch.object(export_operator, "get_progress_mode", return_value="VIEWPORT"), \
+                mock.patch.object(export_operator, "ProgressReporter") as reporter:
+            self.export("card_.3mf", export_mode="BATCH")
+        self.assertEqual(reporter.call_count, 1)
+        reporter.return_value.finish.assert_called_once()
+        percents = [call.args[0] for call in reporter.return_value.update.call_args_list]
+        self.assertTrue(percents and max(percents) <= 1.0)
+        self.assertGreater(max(percents), 0.5, "The card should cover both files")
+
+
+class TestPreferencesMirrorOptions(unittest.TestCase):
+    """Every export and import option has a default in the add-on preferences."""
+
+    # Chosen for each export, not settings to default: a picture or a slicer profile file.
+    NOT_MIRRORED = {
+        "filter_glob", "files", "directory", "filepath", "show_advanced",
+        "slicer_profile", "thumbnail_image", "thumbnail_image_path",
+    }
+    RENAMED = {
+        "use_mesh_modifiers": "default_apply_modifiers",
+        "use_orca_format": "default_multi_material_export",
+    }
+
+    def check(self, operator_class, path, renamed):
+        import io_mesh_3mf
+        with open(path, encoding="utf-8") as f:
+            source = f.read()
+        preferences = io_mesh_3mf.ThreeMFPreferences.__annotations__
+        options = operator_class.__annotations__
+        for option in options:
+            if option in self.NOT_MIRRORED:
+                continue
+            preference = renamed.get(option, f"default_{option}")
+            self.assertIn(preference, preferences, f"{option} has no preference {preference}")
+            self.assertIn(f"self.{option} = prefs.preferences.{preference}", source,
+                          f"{option} isn't set from the preferences when the dialog opens")
+
+    def test_export_options(self):
+        from io_mesh_3mf.export_3mf import operator as module
+        self.check(module.Export3MF, module.__file__, self.RENAMED)
+
+    def test_import_options(self):
+        from io_mesh_3mf.import_3mf import operator as module
+        self.check(module.Import3MF, module.__file__, {"global_scale": "default_import_global_scale"})
 
 
 class TestImportNames(PartNameTestCase):

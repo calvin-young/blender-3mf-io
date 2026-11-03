@@ -61,6 +61,7 @@ class ExportOptions:
     strip_identifying_data: bool = False  # Leave out names, metadata, thumbnail, timestamps
     part_names: str = "OBJECT"  # "AUTO" | "FILE" | "OBJECT" | "MESH"
     single_object: bool = False  # Batch export: write only the given object, without its children
+    one_part: bool = False  # Group all exported objects into a single part (build item)
 
 
 # ---------------------------------------------------------------------------

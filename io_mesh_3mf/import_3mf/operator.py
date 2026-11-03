@@ -317,6 +317,8 @@ class Import3MF(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
             self.global_scale = prefs.preferences.default_import_global_scale
             self.import_materials = prefs.preferences.default_import_materials
             self.reuse_materials = prefs.preferences.default_reuse_materials
+            self.object_names = prefs.preferences.default_object_names
+            self.join_components = prefs.preferences.default_join_components
             self.import_location = prefs.preferences.default_import_location
             self.origin_to_geometry = prefs.preferences.default_origin_to_geometry
             if hasattr(prefs.preferences, "default_scene_unit"):

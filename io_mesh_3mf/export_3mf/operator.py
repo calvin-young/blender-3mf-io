@@ -34,7 +34,7 @@ from ..common.logging import debug, warn, error
 from ..common.units import export_unit_scale
 
 from .archive import create_archive
-from .components import collect_mesh_objects
+from .components import collect_mesh_objects, is_export_root
 from .context import ExportContext, ExportOptions
 from .geometry import check_non_manifold_geometry
 from .orca import OrcaExporter
@@ -226,7 +226,7 @@ class EXPORT_OT_threemf_preset(AddPresetBase, bpy.types.Operator):
 
     preset_values = [
         "op.use_selection",
-        "op.use_batch",
+        "op.export_mode",
         "op.batch_keep_hierarchy",
         "op.part_names",
         "op.export_hidden",
@@ -322,6 +322,25 @@ def _slicer_profile_items(self, context):
     return items
 
 
+class _BatchFileProgress:
+    """Reports one file's progress as its share of the batch's single progress card."""
+
+    def __init__(self, reporter, index: int, count: int):
+        self.reporter = reporter
+        self.index = index
+        self.count = count
+
+    def update(self, percent: float, phase_index: int, message: str = "") -> None:
+        if self.reporter is not None:
+            self.reporter.update(
+                (self.index + percent) / self.count, phase_index,
+                f"File {self.index + 1}/{self.count}: {message}",
+            )
+
+    def finish(self) -> None:
+        pass  # The batch finishes the card.
+
+
 def _discard_archive(archive, filepath: str) -> None:
     """Close and remove the archive of an export that didn't finish.
 
@@ -357,11 +376,19 @@ class Export3MF(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
         description="Export selected objects only.",
         default=False,
     )
-    use_batch: bpy.props.BoolProperty(
-        name="Batch",
-        description="Export each part to its own 3MF file, named like Blender's STL batch export: "
-                    "the file name typed here followed by the part name",
-        default=False,
+    export_mode: bpy.props.EnumProperty(
+        name="Export As",
+        description="How the exported objects are arranged in 3MF files",
+        items=[
+            ("PARTS", "Separate Parts in One File",
+             "One 3MF file with each object as its own part, as in a build"),
+            ("ONE_PART", "One Part in One File",
+             "One 3MF file with all the objects grouped into a single part"),
+            ("BATCH", "One File per Part (Batch)",
+             "A 3MF file for each part, named like Blender's STL batch export: "
+             "the file name typed here followed by the part name"),
+        ],
+        default="PARTS",
     )
     batch_keep_hierarchy: bpy.props.BoolProperty(
         name="Keep Hierarchies Together",
@@ -397,7 +424,7 @@ class Export3MF(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
         default=False,
     )
     global_scale: bpy.props.FloatProperty(
-        name="Scale", default=1.0, soft_min=0.001, soft_max=1000.0, min=1e-6, max=1e6
+        name="Scale", default=1.0, soft_min=0.001, soft_max=1000.0, min=1e-6, max=1e6, precision=4
     )
     export_location: bpy.props.EnumProperty(
         name="Location",
@@ -603,6 +630,9 @@ class Export3MF(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
             self.use_components = prefs.preferences.default_use_components
             self.flatten_hierarchy = prefs.preferences.default_flatten_hierarchy
             self.mmu_slicer_format = prefs.preferences.default_mmu_slicer_format
+            self.export_mode = prefs.preferences.default_export_mode
+            self.batch_keep_hierarchy = prefs.preferences.default_batch_keep_hierarchy
+            self.part_names = prefs.preferences.default_part_names
         if not self.filepath:
             # Name the file after the part when exporting a single part
             # (Blender's default is the .blend file's name).
@@ -662,13 +692,18 @@ class Export3MF(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
         header.label(text="Geometry", icon="MESH_DATA")
         if body:
             col = body.column(align=True)
-            col.prop(self, "use_selection")
-            col.prop(self, "use_batch")
-            if self.use_batch:
+            col.prop(self, "export_mode", text="")
+            if self.export_mode == "BATCH":
                 col.prop(self, "batch_keep_hierarchy")
+            elif self.export_mode == "ONE_PART" and self.use_orca_format == "PAINT":
+                col.label(text="One Part needs the Standard 3MF format.", icon="ERROR")
             col.prop(self, "part_names")
-            col.prop(self, "export_hidden")
-            col.prop(self, "include_disabled")
+            col.prop(self, "use_selection")
+            # A selection already says exactly what to export.
+            sub = col.column(align=True)
+            sub.enabled = not self.use_selection
+            sub.prop(self, "export_hidden")
+            sub.prop(self, "include_disabled")
             col.prop(self, "use_mesh_modifiers")
             col.prop(self, "use_components")
             col.prop(self, "flatten_hierarchy")
@@ -712,8 +747,8 @@ class Export3MF(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
         """Create an ExportContext from the current operator properties."""
         options = ExportOptions(
             use_selection=self.use_selection,
-            export_hidden=self.export_hidden,
-            include_disabled=self.include_disabled,
+            export_hidden=self._include_hidden(),
+            include_disabled=self._include_disabled(),
             global_scale=self.global_scale,
             export_location=self.export_location,
             use_mesh_modifiers=self.use_mesh_modifiers,
@@ -734,6 +769,7 @@ class Export3MF(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
             ),
             strip_identifying_data=self.strip_identifying_data,
             part_names=self.part_names,
+            one_part=self.export_mode == "ONE_PART",
         )
         return ExportContext(
             options=options,
@@ -746,14 +782,26 @@ class Export3MF(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
         """The objects this export starts from: the selection or the whole scene."""
         return list(context.selected_objects) if self.use_selection else list(context.scene.objects)
 
+    def _include_hidden(self) -> bool:
+        return self.export_hidden or self.use_selection
+
+    def _include_disabled(self) -> bool:
+        return self.include_disabled or self.use_selection
+
     def _parts(self, context: bpy.types.Context) -> list:
-        """Top-level objects that contain at least one exportable mesh."""
+        """Objects that become parts of their own and contain at least one exportable mesh."""
+        hidden, disabled = self._include_hidden(), self._include_disabled()
+        exported = {
+            obj for obj in self._candidate_objects(context)
+            if obj.type in {"MESH", "EMPTY"}
+            and (hidden or obj.visible_get())
+            and (disabled or not obj.hide_render)
+        }
         return [
             obj for obj in self._candidate_objects(context)
-            if (obj.parent is None or (self.use_selection and not obj.parent.select_get()))
-            and collect_mesh_objects(
-                [obj], export_hidden=self.export_hidden, include_disabled=self.include_disabled
-            )
+            if obj in exported
+            and is_export_root(obj, exported)
+            and collect_mesh_objects([obj], export_hidden=hidden, include_disabled=disabled)
         ]
 
     def _batch_groups(self, context: bpy.types.Context) -> list:
@@ -764,8 +812,8 @@ class Export3MF(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
         else:
             objects = collect_mesh_objects(
                 self._candidate_objects(context),
-                export_hidden=self.export_hidden,
-                include_disabled=self.include_disabled,
+                export_hidden=self._include_hidden(),
+                include_disabled=self._include_disabled(),
             )
         # Like Blender's STL batch export: the typed file name, then the object name.
         prefix = os.path.splitext(self.filepath)[0]
@@ -780,7 +828,7 @@ class Export3MF(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
         :param context: The Blender context.
         :return: A set of status flags to indicate whether the write succeeded or not.
         """
-        if self.use_batch:
+        if self.export_mode == "BATCH":
             return self._execute_batch(context)
         return self._export_file(context, self.filepath, None)
 
@@ -790,22 +838,45 @@ class Export3MF(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
         if not groups:
             self.safe_report({"ERROR"}, "No mesh objects to export.")
             return {"CANCELLED"}
+        # One progress card for the whole batch.
+        mesh_objects = collect_mesh_objects(
+            [obj for obj, _ in groups],
+            export_hidden=self._include_hidden(),
+            include_disabled=self._include_disabled(),
+        )
+        mode = get_progress_mode(
+            "export",
+            tri_count=sum(len(obj.data.polygons) for obj in mesh_objects if obj.data),
+            has_paint=False,
+            thumbnail_render=self.thumbnail_mode == "AUTO",
+        )
+        reporter = None
+        if mode != "NONE":
+            reporter = ProgressReporter(mode)
+            reporter.start(context, "export", f"{len(groups)} files", phases=PHASES["export"], can_cancel=False)
         written = 0
-        for blender_object, filepath in groups:
-            result = self._export_file(
-                context, filepath, [blender_object], single_object=not self.batch_keep_hierarchy
-            )
-            if result == {"FINISHED"}:
-                written += 1
+        try:
+            for index, (blender_object, filepath) in enumerate(groups):
+                result = self._export_file(
+                    context, filepath, [blender_object],
+                    single_object=not self.batch_keep_hierarchy,
+                    progress=_BatchFileProgress(reporter, index, len(groups)),
+                )
+                if result == {"FINISHED"}:
+                    written += 1
+        finally:
+            if reporter is not None:
+                reporter.finish()
         self.safe_report({"INFO"}, f"Exported {written} of {len(groups)} 3MF files")
         return {"FINISHED"} if written else {"CANCELLED"}
 
     def _export_file(self, context: bpy.types.Context, filepath: str, objects,
-                     single_object: bool = False) -> Set[str]:
+                     single_object: bool = False, progress=None) -> Set[str]:
         """Write one 3MF file.
 
         :param objects: The objects to export, or None for the selection or scene.
         :param single_object: Write only the given object, without its children.
+        :param progress: Progress card to report to instead of starting one for this file.
         """
         ctx = self._build_context()
         ctx.filepath = filepath
@@ -837,7 +908,9 @@ class Export3MF(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
             has_paint=_has_paint,
             thumbnail_render=_thumbnail_render,
         )
-        if _mode != "NONE":
+        if progress is not None:
+            ctx.progress = progress
+        elif _mode != "NONE":
             _pw = ProgressReporter(_mode)
             _pw.start(
                 context,
@@ -927,7 +1000,11 @@ class Export3MF(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
                 ctx.progress.update(0.05, 1, f"{len(mesh_objects)} object(s)")
 
             # Dispatch to format-specific exporter
+            if ctx.options.one_part and ctx.options.use_orca_format == "AUTO":
+                ctx.options.use_orca_format = "STANDARD"  # Only the standard format groups parts.
             exporter = _select_exporter(ctx, context, mesh_objects, has_materials)
+            if ctx.options.one_part and not isinstance(exporter, StandardExporter):
+                ctx.safe_report({"WARNING"}, "One Part needs the Standard 3MF format; exported separate parts")
 
             result = exporter.execute(context, archive, blender_objects, global_scale)
             finished = result == {"FINISHED"}
