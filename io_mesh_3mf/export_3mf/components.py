@@ -98,6 +98,26 @@ class ComponentGroup:
     component_id: int = -1
 
 
+def is_export_root(obj: bpy.types.Object, exported: set) -> bool:
+    """
+    Whether *obj* gets its own build item, rather than being written by a parent.
+
+    Exporting an object writes its MESH and EMPTY children with it.  An object
+    whose parent isn't exported, like a mesh parented to a hidden empty or to a
+    lattice, has no parent to write it and is a part of its own.
+
+    :param obj: The object to check.
+    :param exported: The MESH and EMPTY objects being exported.
+    :return: True if no exported ancestor writes this object.
+    """
+    parent = obj.parent
+    while parent is not None and parent.type in {"MESH", "EMPTY"}:
+        if parent in exported:
+            return False
+        parent = parent.parent
+    return True
+
+
 def detect_linked_duplicates(
     blender_objects: List[bpy.types.Object],
     export_hidden: bool = True,

@@ -38,7 +38,7 @@ from ..common.metadata import Metadata
 from ..common.xml import format_transformation
 
 from .archive import write_core_properties
-from .components import collect_mesh_objects, detect_linked_duplicates, should_use_components
+from .components import collect_mesh_objects, detect_linked_duplicates, is_export_root, should_use_components
 from .geometry import (
     write_vertices, write_triangles, write_passthrough_triangles,
     write_metadata, get_raw_geometry, clear_raw_geometry,
@@ -608,22 +608,20 @@ class StandardExporter(BaseExporter):
         )
         hidden_skipped = 0
 
-        total_objects = sum(
-            1
-            for obj in blender_objects
-            if not (_is_object_excluded(obj, ctx))
-            and obj.parent is None
-            and obj.type in {"MESH", "EMPTY"}
-        )
+        exported = {
+            obj for obj in blender_objects
+            if obj.type in {"MESH", "EMPTY"} and not _is_object_excluded(obj, ctx)
+        }
+        total_objects = sum(1 for obj in exported if is_export_root(obj, exported))
         processed_objects = 0
 
         for blender_object in blender_objects:
             if _is_object_excluded(blender_object, ctx):
                 hidden_skipped += 1
                 continue
-            if blender_object.parent is not None:
-                continue
             if blender_object.type not in {"MESH", "EMPTY"}:
+                continue
+            if not is_export_root(blender_object, exported):
                 continue
 
             processed_objects += 1
