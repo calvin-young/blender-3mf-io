@@ -102,12 +102,12 @@ class TestBatchExport(PartNameTestCase):
         for index, name in enumerate(("wheel", "axle")):
             child = self.add_cube(name, location=(index * 3, 5, 0))
             child.parent = self.assembly
-        self.add_cube("Handle - Cap", location=(0, -5, 0))
+        self.add_cube("Part - One", location=(0, -5, 0))
 
     def test_keeps_hierarchies_together(self):
         self.export("batch_.3mf", export_mode="BATCH")
         self.assertTrue(os.path.exists(self.path("batch_assembly.3mf")))
-        self.assertTrue(os.path.exists(self.path("batch_Handle_-_Cap.3mf")))
+        self.assertTrue(os.path.exists(self.path("batch_Part_-_One.3mf")))
         self.assertFalse(os.path.exists(self.path("batch_.3mf")))
         self.assertEqual(part_names(self.path("batch_assembly.3mf")), ["batch_assembly"])
         with zipfile.ZipFile(self.path("batch_assembly.3mf")) as archive:
@@ -116,7 +116,7 @@ class TestBatchExport(PartNameTestCase):
 
     def test_one_file_per_mesh(self):
         self.export("each_.3mf", export_mode="BATCH", batch_keep_hierarchy=False)
-        for name in ("wheel", "axle", "Handle_-_Cap"):
+        for name in ("wheel", "axle", "Part_-_One"):
             path = self.path(f"each_{name}.3mf")
             self.assertTrue(os.path.exists(path), path)
             self.assertEqual(part_names(path), [f"each_{name}"])
@@ -134,8 +134,8 @@ class TestOnePart(PartNameTestCase):
 
     def setUp(self):
         super().setUp()
-        self.add_cube("strap")
-        self.add_cube("buckle", location=(3, 0, 0))
+        self.add_cube("frame")
+        self.add_cube("bracket", location=(3, 0, 0))
 
     def export_one(self, name, **options):
         return self.export(name, export_mode="ONE_PART", use_orca_format="STANDARD", **options)
@@ -146,14 +146,14 @@ class TestOnePart(PartNameTestCase):
 
     def test_object_name_option(self):
         path = self.export_one("composite_object.3mf", part_names="OBJECT")
-        self.assertIn(part_names(path)[0], ("strap", "buckle"))
+        self.assertIn(part_names(path)[0], ("frame", "bracket"))
 
     def test_components_keep_their_names_and_places(self):
         path = self.export_one("composite_names.3mf", export_location="KEEP", global_scale=0.001)
         with zipfile.ZipFile(path) as archive:
             root = ET.fromstring(archive.read("3D/3dmodel.model"))
         names = [obj.get("name") for obj in root.iter(f"{CORE}object")]
-        self.assertEqual(sorted(names), ["buckle", "composite_names", "strap"])
+        self.assertEqual(sorted(names), ["bracket", "composite_names", "frame"])
         self.assertEqual(len(list(root.iter(f"{CORE}component"))), 2)
 
         self.clean_scene()
