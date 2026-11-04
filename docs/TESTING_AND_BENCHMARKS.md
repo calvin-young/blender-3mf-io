@@ -47,32 +47,88 @@ mesh copy per build item; Smooth by Angle silently skipped in Blender 4.2; test-
 ## How readers count parts
 
 Three small synthetic files with the same two cubes, each written a different way. Linux readers were run on
-2026-11-03; Windows programs are still to do, apart from one real file a user opened by hand.
+2026-11-03, Windows programs on 2026-11-04, each with its default settings unless the row says otherwise.
 
 | Reader | Components in one build item | One mesh with two shells | Two build items |
 |---|---|---|---|
 | This add-on (default) | 2 objects | 1 object | 2 objects |
 | This add-on (Join Components) | 1 object | 1 object | 2 objects |
+| HP SmartStream 3D Build Manager 2.0 | 1 part | 1 part | 2 parts |
+| MiniMagics 23.5 | 1 part | 1 part | 2 parts |
+| Netfabb 2021.1 (defaults: Split 3MF Build Items and Use Components as Groups on) | 1 group of 2 parts | 1 part with 2 shells | 2 parts |
+| Netfabb, Use Components as Groups off | 2 flat parts | 1 part with 2 shells | 2 parts |
+| Netfabb, Split 3MF Build Items off | whole file is 1 part, named after the file | 1 part | whole file is 1 part, named after the file |
+| Rhino 8 | 1 block instance | 1 mesh | 2 meshes |
+| 3D Builder, CAD Assistant | 2 boxes on screen, parts not counted | same | same |
 | lib3mf 2.x | 1 build item, 2 meshes | 1 build item, 1 mesh | 2 build items, 2 meshes |
 | OrcaSlicer 2.4.2 | 1 object, 2 parts | 1 object, 2 parts | 2 objects |
 | PrusaSlicer 2.9.6 | 2 objects | 1 object, 2 parts | 2 objects |
 | trimesh | 2 geometries | 1 geometry | 2 geometries |
 | assimp | 2 meshes | 1 mesh | 2 meshes |
-| Netfabb (user test, its import settings "Split 3MF Build Items" and "Use Components as Groups" on) | several parts | not tested | not tested |
-| HP SmartStream 3D Build Manager (user test) | 1 part | not tested | not tested |
+
+**In short:** the MJF tools count build items. Components stay one part in SmartStream and MiniMagics, and only
+Netfabb opens them up, as a group. MiniMagics also lists every object in its import dialog before it imports.
+
+## How readers show color
+
+Synthetic test files, run 2026-11-04. These are viewports with no printer selected, so they say nothing yet about
+what prints. "Grey" means the program showed its default color.
+
+| Reader | Base material, whole object | Base material, per face | Color group, flat | Color group, per vertex | Texture | Layered (multiproperties) | PBR display properties | Alpha |
+|---|---|---|---|---|---|---|---|---|
+| SmartStream 2.0 | grey | yes | yes | yes | yes | one layer only, no blend | grey | ignored |
+| Netfabb 2021.1 | yes | yes | yes | yes | yes | one layer only, no blend | color, metal shade, translucent glass | color-group alpha ignored |
+| MiniMagics 23.5 | yes | yes | yes | yes | yes | blended | not checked | ignored |
+| 3D Builder | yes | yes | yes | yes | yes | blended | glossy, metal, glass | ignored in color groups |
+| Rhino 8 | grey | grey | not checked | yes | yes | one layer only | not checked | not checked |
+| CAD Assistant | first color on every object | file refused | not checked | grey | file refused | file refused | first color | not checked |
+
+Slicer paint attributes (`paint_color`, `slic3rpe:mmu_segmentation`) show as plain grey in SmartStream and Netfabb.
+Files this add-on imports from a slicer and exports again as a standard 3MF keep their colors everywhere.
+
+CAD Assistant refused 6 of 13 files with "Cannot open root file in archive", including files that other readers
+open. The cause isn't known.
+
+## What makes readers refuse a file
+
+| Cause | SmartStream | Netfabb | Other | This add-on |
+|---|---|---|---|---|
+| Thumbnail relationship pointing at a missing image | "Failed to import" | "Could not create OPC part" | lib3mf refuses | The fork writes the relationship only with a thumbnail. Upstream and the slicers wrote it when run without a window |
+| Model metadata name with an undeclared prefix (`zoo:Custom`) | "Failed to import" | warning | | The fork declares the prefix on export (found here: imported names used to be written undeclared) |
+| Degenerate triangles | "Failed to import" | "Invalid Model Coordinate Indices" | lib3mf refuses | Reads it |
+| A file with every object type, including `other` | loads | refuses: bad enum constant, which type wasn't isolated | | Keeps the imported type |
+| Layered file from upstream, repaired thumbnail | loads | "Resource Index is invalid" | | The fork's layered export loads |
+
+Other messages seen: Netfabb warns "A MeshObject with triangle-properties is missing an object-level property"
+when textured objects have no default `pid`; the fork now writes one. An inside-out mesh shows solid dark red with a
+warning triangle in Netfabb, and a red badge and red build box in SmartStream, whatever its colors are.
+
+## What programs write
+
+| Program | Can it write 3MF? | Structure it writes | Notes |
+|---|---|---|---|
+| This add-on | yes | see the Export As table in the README | |
+| Netfabb 2021.1 (Export Part, as 3MF; works unlicensed) | yes | every part is a mesh object wrapped in one component, named the same, in one build item. Adds `Metadata/thumbnail.png` and `History/history.xml` | Options: Export Group Structure, Merge color and texture to 3MF multi-properties (with a blending method), Check and fix Topology |
+| Rhino 8 | yes | keeps build items, and block instances become nested components (6 component objects for 2 cubes). No object names, so readers make up their own (`Mesh_2`) | Keeps textures. Per-face and whole-object base materials were already lost on import |
+| MiniMagics 23.5 | not tested | | Saving warns that a part imported from components "will be converted to a regular part" |
+| SmartStream 2.0 | no | | File menu saves its own `.ssp` project only |
+
+Netfabb's and Rhino's files import into this add-on, and Rhino's load in SmartStream and Netfabb.
+
+**MiniMagics and shells:** a part with two shells, whether from components or one mesh, shows "This part contains
+errors and cannot be printed" under Diagnostics, with 0 inverted normals and 0 bad edges. SmartStream and Netfabb
+don't warn about the shells themselves.
 
 ## Programs to test against
 
-Windows programs on the test VM: Netfabb, Rhino, MiniMagics, CAD Assistant, 3D Builder, Houdini. To add:
-**HP SmartStream 3D Build Manager**, the software that ships with HP Jet Fusion printers, so many users meet
-3MF files through it. Linux: OrcaSlicer, PrusaSlicer, lib3mf, trimesh, assimp.
+Windows programs on the test VM: Netfabb, Rhino, MiniMagics, CAD Assistant, 3D Builder, Houdini, HP SmartStream 3D
+Build Manager (the software that ships with HP Jet Fusion printers). Linux: OrcaSlicer, PrusaSlicer, lib3mf, trimesh, assimp. Houdini hasn't been run yet.
 
 ## Blind spots (to test later)
 
-- **Netfabb and Magics** (Windows, Magics needs a license): open the fork's exports, especially layered
-  textures, readable texture names, PBR display properties, components vs repeated build items, and the
-  recovered (formerly damaged) builds. Then print a layered export, including label textures that are
-  replaced at job submission.
+- **Printing:** every result above is what a program shows, not what prints. Print a layered export, including
+  label textures that are replaced at job submission. Select a printer in SmartStream and check what it keeps.
+- **Netfabb exports of a group, and MiniMagics exports:** not tested.
 - **Other producers not in the corpus:** Autodesk Fusion / Inventor,
   Microsoft 3D Builder, Materialise 3-matic, Siemens NX, SolidWorks, Rhino, 3D Systems 3D Sprint, Stratasys
   GrabCAD Print, Cura, Bambu Studio, nTopology.
