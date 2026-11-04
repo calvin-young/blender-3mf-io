@@ -36,7 +36,7 @@ from ..common.units import export_unit_scale
 from .archive import create_archive
 from .components import collect_mesh_objects
 from .context import ExportContext, ExportOptions
-from .geometry import check_non_manifold_geometry
+from .geometry import check_non_manifold_geometry, clear_all_raw_geometry
 from .filament_slots import has_stashed_mixed_filaments
 from .orca import OrcaExporter
 from .prusa import PrusaExporter
@@ -874,6 +874,7 @@ class Export3MF(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
                 ctx, context, blender_objects, mesh_objects, has_materials
             )
 
+            clear_all_raw_geometry()
             result = exporter.execute(context, archive, blender_objects, global_scale)
             if result == {"FINISHED"}:
                 _maybe_show_rating_nudge(context)

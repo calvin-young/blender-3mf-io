@@ -1076,7 +1076,7 @@ def export_3mf(
     from .export_3mf.components import collect_mesh_objects
     from .export_3mf.context import ExportContext, ExportOptions
     from .export_3mf.filament_slots import has_stashed_mixed_filaments
-    from .export_3mf.geometry import check_non_manifold_geometry
+    from .export_3mf.geometry import check_non_manifold_geometry, clear_all_raw_geometry
     from .export_3mf.operator import (
         _assembly_export_requested,
         _plate_export_requested,
@@ -1341,6 +1341,7 @@ def export_3mf(
                     else:
                         exporter = StandardExporter(ctx)
 
+            clear_all_raw_geometry()
             status_set = exporter.execute(context, archive, blender_objects, scale)
             result.status = next(iter(status_set)) if status_set else "FINISHED"
         except Exception as e:  # noqa: BLE001
