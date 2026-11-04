@@ -79,6 +79,8 @@ _IMPLICIT_NS = frozenset({
 # can be edited by hand.  Matches xml.etree.ElementTree.indent()'s default.
 _XML_INDENT = "  "
 
+_METADATA_PREFIX_RE = re.compile(r"([A-Za-z_][\w.-]*):")
+
 
 def _indent_raw_geometry(raw: str, depth: int) -> str:
     """Put each child of a pre-built ``<vertices>``/``<triangles>`` block on its own line.
@@ -177,6 +179,17 @@ def _stream_model_to_file(output, root: xml.etree.ElementTree.Element) -> None:
             _collect_ns(child, seen)
         return seen
 
+    def _collect_metadata_prefixes(elem, seen: set) -> set:
+        """Collect the namespace prefixes used in ``<metadata>`` names."""
+        if elem.tag == f"{{{MODEL_NAMESPACE}}}metadata":
+            name = elem.attrib.get(f"{{{MODEL_NAMESPACE}}}name", elem.attrib.get("name", ""))
+            m = _METADATA_PREFIX_RE.match(name)
+            if m:
+                seen.add(m.group(1))
+        for child in elem:
+            _collect_metadata_prefixes(child, seen)
+        return seen
+
     def _write_element(elem, depth: int = 0, is_root: bool = False) -> None:
         tag_str = _qname(elem.tag)
 
@@ -195,6 +208,13 @@ def _stream_model_to_file(output, root: xml.etree.ElementTree.Element) -> None:
                     attr_parts.append(f'xmlns="{uri}"')
                 else:
                     attr_parts.append(f'xmlns:{prefix}="{uri}"')
+
+            # A metadata name's prefix must be declared, and some readers refuse
+            # the file otherwise. Names imported from other programs keep their
+            # prefix but not its URI, which isn't stored, so these get a stand-in.
+            declared = set(uri_to_prefix.values())
+            for prefix in sorted(_collect_metadata_prefixes(elem, set()) - declared):
+                attr_parts.append(f'xmlns:{prefix}="urn:3mf-metadata:{prefix}"')
 
         for k, v in elem.attrib.items():
             attr_parts.append(f'{_qname(k)}="{_attr_escape(v)}"')
