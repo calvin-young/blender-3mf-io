@@ -1042,7 +1042,7 @@ def export_3mf(
     from .export_3mf.archive import create_archive
     from .export_3mf.components import collect_mesh_objects
     from .export_3mf.context import ExportContext, ExportOptions
-    from .export_3mf.geometry import check_non_manifold_geometry
+    from .export_3mf.geometry import check_non_manifold_geometry, clear_all_raw_geometry
     from .export_3mf.orca import OrcaExporter
     from .export_3mf.prusa import PrusaExporter
     from .export_3mf.standard import StandardExporter
@@ -1267,6 +1267,7 @@ def export_3mf(
                     else:
                         exporter = StandardExporter(ctx)
 
+            clear_all_raw_geometry()
             status_set = exporter.execute(context, archive, blender_objects, scale)
             result.status = next(iter(status_set)) if status_set else "FINISHED"
         except Exception as e:  # noqa: BLE001

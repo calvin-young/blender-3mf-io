@@ -36,7 +36,7 @@ from ..common.units import export_unit_scale
 from .archive import create_archive
 from .components import collect_mesh_objects, is_export_root
 from .context import ExportContext, ExportOptions
-from .geometry import check_non_manifold_geometry
+from .geometry import check_non_manifold_geometry, clear_all_raw_geometry
 from .orca import OrcaExporter
 from .prusa import PrusaExporter
 from .standard import StandardExporter
@@ -1015,6 +1015,7 @@ class Export3MF(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
             if ctx.options.one_part and len(mesh_objects) > 1 and not isinstance(exporter, StandardExporter):
                 ctx.safe_report({"WARNING"}, "One Part needs the Standard 3MF format; exported separate parts")
 
+            clear_all_raw_geometry()
             result = exporter.execute(context, archive, blender_objects, global_scale)
             finished = result == {"FINISHED"}
             if finished:

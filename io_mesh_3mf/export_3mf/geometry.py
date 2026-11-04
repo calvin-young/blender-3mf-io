@@ -54,6 +54,14 @@ def get_raw_geometry(mesh_element: xml.etree.ElementTree.Element):
     return None, None
 
 
+def clear_all_raw_geometry() -> None:
+    """Forget geometry left by an export that stopped before writing it.
+
+    Its ids may belong to new elements by now, which would then get that geometry.
+    """
+    _raw_geometry_cache.clear()
+
+
 def clear_raw_geometry(mesh_element: xml.etree.ElementTree.Element) -> None:
     """Remove the cached raw geometry for *mesh_element* after it has been written."""
     _raw_geometry_cache.pop(id(mesh_element), None)

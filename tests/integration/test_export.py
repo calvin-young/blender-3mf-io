@@ -27,6 +27,16 @@ class ExportMetadataPrefixTests(Blender3mfTestCase):
         self.assertIn(b'name="slicer:Version"', model)
         self.assertIn(b"xmlns:slicer=", model)
         ET.fromstring(model)
+class ExportStaleGeometryTests(Blender3mfTestCase):
+    """Geometry left by an export that stopped doesn't reach the next one."""
+
+    def test_export_forgets_left_over_geometry(self):
+        from io_mesh_3mf.export_3mf.geometry import _raw_geometry_cache
+        _raw_geometry_cache[1] = {"vertices": "<vertices/>"}
+        bpy.ops.mesh.primitive_cube_add()
+        result = bpy.ops.export_mesh.threemf(filepath=str(self.temp_file), use_orca_format="STANDARD")
+        self.assertIn("FINISHED", result)
+        self.assertNotIn(1, _raw_geometry_cache)
 
 
 class ExportBasicTests(Blender3mfTestCase):
