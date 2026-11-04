@@ -11,6 +11,24 @@ import xml.etree.ElementTree as ET
 from test_base import Blender3mfTestCase
 
 
+class ExportMetadataPrefixTests(Blender3mfTestCase):
+    """Prefixed metadata names need a declared namespace."""
+
+    def test_prefixed_scene_metadata_is_declared(self):
+        bpy.ops.mesh.primitive_cube_add()
+        bpy.context.scene["slicer:Version"] = {"datatype": "", "preserve": False, "value": "1"}
+        try:
+            result = bpy.ops.export_mesh.threemf(filepath=str(self.temp_file), use_orca_format="STANDARD")
+        finally:
+            del bpy.context.scene["slicer:Version"]
+        self.assertIn("FINISHED", result)
+        with zipfile.ZipFile(str(self.temp_file)) as archive:
+            model = archive.read("3D/3dmodel.model")
+        self.assertIn(b'name="slicer:Version"', model)
+        self.assertIn(b"xmlns:slicer=", model)
+        ET.fromstring(model)
+
+
 class ExportBasicTests(Blender3mfTestCase):
     """Basic export functionality tests."""
 
