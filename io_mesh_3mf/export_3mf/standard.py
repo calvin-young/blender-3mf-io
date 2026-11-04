@@ -1109,6 +1109,20 @@ class StandardExporter(BaseExporter):
                             has_textured_material = True
                             break
 
+                if has_textured_material:
+                    # A mesh with properties on its triangles must also name a
+                    # default property on the object. Netfabb warns otherwise.
+                    for triangle in mesh.loop_triangles:
+                        if triangle.material_index >= len(blender_object.material_slots):
+                            continue
+                        material = blender_object.material_slots[triangle.material_index].material
+                        if material and material.name in ctx.texture_groups:
+                            object_element.attrib[self.attr("pid")] = str(
+                                ctx.texture_groups[material.name]["group_id"]
+                            )
+                            object_element.attrib[self.attr("pindex")] = "0"
+                            break
+
                 # In AUTO mode, use face colors mapped to colorgroup IDs
                 if (
                     ctx.options.use_orca_format == "AUTO"

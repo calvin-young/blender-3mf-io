@@ -17,6 +17,38 @@ MODEL_NS = "http://schemas.microsoft.com/3dmanufacturing/core/2015/02"
 SLIC3R_NS = "http://schemas.slic3r.org/3mf/2017/06"
 
 
+class ExportTexturedObjectTests(Blender3mfTestCase):
+    """An object with textured triangles names a default property."""
+
+    def test_textured_object_has_pid_and_pindex(self):
+        bpy.ops.mesh.primitive_cube_add()
+        cube = bpy.context.object
+        image = bpy.data.images.new("tex", 4, 4)
+        image.filepath_raw = str(self.temp_file) + ".png"
+        image.file_format = "PNG"
+        image.save()
+        material = bpy.data.materials.new("textured")
+        material.use_nodes = True
+        node = material.node_tree.nodes.new("ShaderNodeTexImage")
+        node.image = image
+        material.node_tree.links.new(
+            node.outputs["Color"], material.node_tree.nodes["Principled BSDF"].inputs["Base Color"]
+        )
+        cube.data.materials.append(material)
+
+        result = bpy.ops.export_mesh.threemf(filepath=str(self.temp_file), use_orca_format="STANDARD")
+        self.assertIn("FINISHED", result)
+
+        with zipfile.ZipFile(str(self.temp_file), "r") as archive:
+            root = ET.fromstring(archive.read("3D/3dmodel.model"))
+        ns = "{http://schemas.microsoft.com/3dmanufacturing/core/2015/02}"
+        obj = root.find(f"./{ns}resources/{ns}object")
+        triangle = obj.find(f"./{ns}mesh/{ns}triangles/{ns}triangle")
+        self.assertIsNotNone(triangle.get("p2"))
+        self.assertEqual(obj.get("pid"), triangle.get("pid"))
+        self.assertEqual(obj.get("pindex"), "0")
+
+
 class ExportTriangleMaterialTests(Blender3mfTestCase):
     """Verify per-triangle material attributes in exported XML."""
 
