@@ -865,9 +865,15 @@ def _resolve_multiproperties_material(
 # read_components
 # ---------------------------------------------------------------------------
 
+def external_object_key(model_path: str, objectid: str) -> str:
+    """Key for an object from another model part. Object IDs are only unique within their own part."""
+    return f"/{model_path.lstrip('/')}#{objectid}"
+
+
 def read_components(
     ctx: "ImportContext",
     object_node: xml.etree.ElementTree.Element,
+    source_path: Optional[str] = None,
 ) -> List[Component]:
     """Read ``<component>`` elements from an ``<object>`` node.
 
@@ -875,6 +881,7 @@ def read_components(
 
     :param ctx: The import context (currently unused, reserved).
     :param object_node: An ``<object>`` element.
+    :param source_path: The model part holding *object_node*, when it's not the root model.
     :return: List of :class:`Component` instances.
     """
     result: List[Component] = []
@@ -894,7 +901,9 @@ def read_components(
         if path:
             debug(f"Component references external model: {path}")
 
-        result.append(Component(resource_object=objectid, transformation=transform, path=path))
+        owner = path or source_path
+        key = external_object_key(owner, objectid) if owner else objectid
+        result.append(Component(resource_object=key, transformation=transform, path=path))
     return result
 
 
@@ -1111,7 +1120,8 @@ def read_external_model_objects(
             warn(f"Object in {source_path} without ID!")
             continue
 
-        if objectid in ctx.resource_objects:
+        key = external_object_key(source_path, objectid)
+        if key in ctx.resource_objects:
             debug(f"Object {objectid} already loaded, skipping duplicate from {source_path}")
             continue
 
@@ -1129,7 +1139,7 @@ def read_external_model_objects(
             ctx, object_node, None, None, verts, objectid, paint_only=True
         )
 
-        components = read_components(ctx, object_node)
+        components = read_components(ctx, object_node, source_path)
 
         metadata = Metadata()
         for metadata_node in object_node.iterfind(
@@ -1152,7 +1162,7 @@ def read_external_model_objects(
 
         triangle_sets = read_triangle_sets(ctx, object_node)
 
-        ctx.resource_objects[objectid] = ResourceObject(
+        ctx.resource_objects[key] = ResourceObject(
             vertices=verts,
             triangles=triangles,
             materials=mats,

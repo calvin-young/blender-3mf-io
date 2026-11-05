@@ -250,6 +250,8 @@ def build_object(
         # 3. Fallback: "3MF Object"
         wrapper_id = objectid_stack_trace[0] if objectid_stack_trace else None
         current_id = objectid_stack_trace[-1] if objectid_stack_trace else None
+        # model_settings.config names parts by their plain ID within the wrapper.
+        current_id = current_id.rpartition("#")[2] if current_id else current_id
         name_key = (wrapper_id, current_id) if wrapper_id and current_id else None
         object_name = "3MF Object"
         if name_key and name_key in ctx.part_names:
