@@ -110,10 +110,16 @@ warning triangle in Netfabb, and a red badge and red build box in SmartStream, w
 | This add-on | yes | see the Export As table in the README | |
 | Netfabb 2021.1 (Export Part, as 3MF; works unlicensed) | yes | every part is a mesh object wrapped in one component, named the same, in one build item. Adds `Metadata/thumbnail.png` and `History/history.xml` | Options: Export Group Structure, Merge color and texture to 3MF multi-properties (with a blending method), Check and fix Topology |
 | Rhino 8 | yes | keeps build items, and block instances become nested components (6 component objects for 2 cubes). No object names, so readers make up their own (`Mesh_2`) | Keeps textures. Per-face and whole-object base materials were already lost on import |
-| MiniMagics 23.5 | not tested | | Saving warns that a part imported from components "will be converted to a regular part" |
+| MiniMagics 23.5 | yes, no options | one file per part ("One by one" in the save dialog); a part imported from components becomes a regular part after a warning. Keeps layers as `multiproperties`. `.png.png` texture names, no thumbnail or history | |
+| Houdini 20.5, Palace3D Save3mf | yes | the whole input as one object | Reads with Read3mf. `Opaque` is added to texture names |
 | SmartStream 2.0 | no | | File menu saves its own `.ssp` project only |
 
 Netfabb's and Rhino's files import into this add-on, and Rhino's load in SmartStream and Netfabb.
+
+**Layers on export** (2026-11-04). Netfabb's Merge color and texture option writes `multiproperties` from a part with color and
+texture on separate triangles, with `multiply` or `mix` as chosen. A part that already has a `mix` label layer always comes out as
+`multiply`, with the option on or off and with either method, so a transparent label turns black. MiniMagics keeps the layer as `mix`. Rhino drops it. Files only; nothing printed. The files are in
+[3MF Zoo](https://github.com/calvin-young/3mf-zoo) as `exp-netfabb-*`, `exp-minimagics-*`, `exp-rhino-*`.
 
 **MiniMagics and shells:** a part with two shells, whether from components or one mesh, shows "This part contains
 errors and cannot be printed" under Diagnostics, with 0 inverted normals and 0 bad edges. SmartStream and Netfabb
@@ -122,13 +128,12 @@ don't warn about the shells themselves.
 ## Programs to test against
 
 Windows programs on the test VM: Netfabb, Rhino, MiniMagics, CAD Assistant, 3D Builder, Houdini, HP SmartStream 3D
-Build Manager (the software that ships with HP Jet Fusion printers). Linux: OrcaSlicer, PrusaSlicer, lib3mf, trimesh, assimp. Houdini hasn't been run yet.
+Build Manager (the software that ships with HP Jet Fusion printers). Linux: OrcaSlicer, PrusaSlicer, lib3mf, trimesh, assimp.
 
 ## Blind spots (to test later)
 
 - **Printing:** every result above is what a program shows, not what prints. Print a layered export, including
   label textures that are replaced at job submission. Select a printer in SmartStream and check what it keeps.
-- **Netfabb exports of a group, and MiniMagics exports:** not tested.
 - **Other producers not in the corpus:** Autodesk Fusion / Inventor,
   Microsoft 3D Builder, Materialise 3-matic, Siemens NX, SolidWorks, Rhino, 3D Systems 3D Sprint, Stratasys
   GrabCAD Print, Cura, Bambu Studio, nTopology.
