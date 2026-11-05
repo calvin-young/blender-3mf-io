@@ -211,6 +211,26 @@ class TestExportDispatch(Blender3mfTestCase):
         cube.data.materials.append(mat)
         return cube
 
+    def test_auto_with_texture_uses_standard(self):
+        """AUTO keeps a textured object in the standard format, as the export dialog does."""
+        bpy.ops.mesh.primitive_cube_add(location=(0, 0, 0))
+        cube = bpy.context.object
+        cube.data.uv_layers.new(name="UV")
+        img = bpy.data.images.new("API_Tex", 4, 4)
+        img.pack()
+        mat = bpy.data.materials.new("API_Textured")
+        mat.use_nodes = True
+        tex = mat.node_tree.nodes.new("ShaderNodeTexImage")
+        tex.image = img
+        mat.node_tree.links.new(tex.outputs["Color"], mat.node_tree.nodes["Principled BSDF"].inputs["Base Color"])
+        cube.data.materials.append(mat)
+        result = export_3mf(str(self.temp_file), use_orca_format="AUTO")
+        self.assertEqual(result.status, "FINISHED")
+        with zipfile.ZipFile(str(self.temp_file), "r") as zf:
+            names = zf.namelist()
+        self.assertEqual(len([n for n in names if n.endswith(".model")]), 1)
+        self.assertTrue(any(n.endswith(".png") for n in names), names)
+
     def test_auto_with_materials_uses_orca(self):
         """AUTO mode with materials present should produce Orca multi-file structure."""
         self._create_cube_with_material()

@@ -1261,11 +1261,11 @@ def export_3mf(
                             exporter = OrcaExporter(ctx)
                         else:
                             exporter = PrusaExporter(ctx)
-                    elif has_materials:
-                        debug("API AUTO: materials detected, using OrcaExporter")
-                        exporter = OrcaExporter(ctx)
                     else:
-                        exporter = StandardExporter(ctx)
+                        # The same choice as the export dialog: textures and data from an import
+                        # keep the standard format, which slicer projects would lose.
+                        from .export_3mf.operator import _select_exporter
+                        exporter = _select_exporter(ctx, context, mesh_objects, has_materials)
 
             clear_all_raw_geometry()
             status_set = exporter.execute(context, archive, blender_objects, scale)
