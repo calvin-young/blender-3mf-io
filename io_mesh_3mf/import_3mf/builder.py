@@ -291,6 +291,8 @@ def build_object(
             if is_component_instance and component is not None
             else objectid_stack_trace[-1] if objectid_stack_trace else None
         )
+        # model_settings.config names parts by their plain ID within the wrapper.
+        current_id = current_id.rpartition("#")[2] if current_id else current_id
         name_key = (wrapper_id, current_id) if wrapper_id and current_id else None
         object_name = "3MF Object"
         if name_key and name_key in ctx.part_names:
@@ -561,7 +563,7 @@ def _resolve_object_extruder(ctx: "ImportContext", objectid_stack_trace: List[st
     if not objectid_stack_trace:
         return None
     wrapper_id = objectid_stack_trace[0]
-    extruder = ctx.part_extruders.get((wrapper_id, objectid_stack_trace[-1]))
+    extruder = ctx.part_extruders.get((wrapper_id, objectid_stack_trace[-1].rpartition("#")[2]))
     if extruder is None:
         extruder = ctx.object_default_extruders.get(wrapper_id)
     return extruder
