@@ -108,7 +108,7 @@ warning triangle in Netfabb, and a red badge and red build box in SmartStream, w
 | Program | Can it write 3MF? | Structure it writes | Notes |
 |---|---|---|---|
 | This add-on | yes | see the Export As table in the README | |
-| Netfabb 2021.1 (Export Part, as 3MF; works unlicensed) | yes | every part is a mesh object wrapped in one component, named the same, in one build item. Adds `Metadata/thumbnail.png` and `History/history.xml` | Options: Export Group Structure, Merge color and texture to 3MF multi-properties (with a blending method), Check and fix Topology |
+| Netfabb 2021.1 (Export Part, as 3MF) | yes | every part is a mesh object wrapped in one component, named the same, in one build item. Adds `Metadata/thumbnail.png` and `History/history.xml` | Options: Export Group Structure, Merge color and texture to 3MF multi-properties (with a blending method), Check and fix Topology |
 | Rhino 8 | yes | keeps build items, and block instances become nested components (6 component objects for 2 cubes). No object names, so readers make up their own (`Mesh_2`) | Keeps textures. Per-face and whole-object base materials were already lost on import |
 | MiniMagics 23.5 | yes, no options | one file per part ("One by one" in the save dialog); a part imported from components becomes a regular part after a warning. Keeps layers as `multiproperties`. `.png.png` texture names, no thumbnail or history | |
 | Houdini 20.5, Palace3D Save3mf | yes | the whole input as one object | Reads with Read3mf. `Opaque` is added to texture names |
