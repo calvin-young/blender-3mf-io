@@ -115,7 +115,16 @@ The importer can also preserve:
 
 Export from **File → Export → 3D Manufacturing Format (.3mf)**.
 
-The key export setting is **Material Export Mode**:
+Start with **Export For**, which sets the other options for you:
+
+| Export For | What you get |
+|---|---|
+| **A Part** (default) | All objects as one part, named after the file, with colors and textures, centered |
+| **A Printer → PBF (MJF, SLS)** | Each object a part, kept where it is in the scene, with colors and textures |
+| **A Printer → Orca / Bambu** or **Prusa / SuperSlicer** | Each object a part, centered, colors as filaments for that slicer |
+| **Custom** | Every option below, to set yourself |
+
+With **Custom**, the key export setting is **Material Export Mode**:
 
 - **Auto**: inspects the scene and picks the right exporter
 - **Standard 3MF**: writes a spec-compliant single-model 3MF
@@ -143,6 +152,8 @@ That includes both workflows the add-on supports:
 Other programs don't all treat components alike, so One Part may still appear as several parts in some of them. See [how readers count parts](docs/TESTING_AND_BENCHMARKS.md#how-readers-count-parts).
 
 On import, **Object Names** chooses between the part name in the file and the file name, and **Join Components** brings a part made of several components in as one object.
+
+Textured and layered materials keep their Blender names through a round trip: the exporter writes each name as an optional attribute that other programs ignore. Files from elsewhere name the material after its texture image. **Reuse Existing Materials** and **Reuse Existing Images** make repeated imports share one material and one packed image when the name and the image contents match.
 
 The external guide pages walk through both workflows in detail:
 
