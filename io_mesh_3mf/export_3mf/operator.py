@@ -358,6 +358,34 @@ def _discard_archive(archive, filepath: str) -> None:
         debug(f"Removing the unfinished archive failed: {e}")
 
 
+# Settings that "Export For" chooses, and the summary the dialog shows for them.
+# Custom leaves every option to the user.
+EXPORT_FOR_SETTINGS = {
+    "PART": (
+        {"export_mode": "ONE_PART", "use_orca_format": "STANDARD", "export_location": "CENTER",
+         "part_names": "AUTO", "use_components": True, "flatten_hierarchy": False},
+        ("One part, named after the file.", "Colors and textures. Centered."),
+    ),
+    "PBF": (
+        {"export_mode": "PARTS", "use_orca_format": "STANDARD", "export_location": "KEEP",
+         "part_names": "AUTO", "use_components": True, "flatten_hierarchy": False},
+        ("Each object a part, kept in place.", "Colors and textures."),
+    ),
+    "ORCA": (
+        {"export_mode": "PARTS", "use_orca_format": "AUTO", "mmu_slicer_format": "ORCA",
+         "export_location": "CENTER", "part_names": "AUTO", "use_components": True,
+         "flatten_hierarchy": False},
+        ("Each object a part, centered.", "Colors become filaments."),
+    ),
+    "PRUSA": (
+        {"export_mode": "PARTS", "use_orca_format": "AUTO", "mmu_slicer_format": "PRUSA",
+         "export_location": "CENTER", "part_names": "AUTO", "use_components": True,
+         "flatten_hierarchy": False},
+        ("Each object a part, centered.", "Colors become filaments."),
+    ),
+}
+
+
 class Export3MF(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
     """
     Operator that exports a 3MF file from Blender.
@@ -371,6 +399,27 @@ class Export3MF(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
 
     # Options for the user.
     filter_glob: bpy.props.StringProperty(default="*.3mf", options={"HIDDEN"})
+    export_for: bpy.props.EnumProperty(
+        name="Export For",
+        description="What the file is for. Sets the other options to suit it",
+        items=[
+            ("PART", "A Part", "A single part in its own file"),
+            ("PRINTER", "A Printer", "A print file: a build for a powder-bed printer, or a slicer project"),
+            ("CUSTOM", "Custom", "Choose every option yourself"),
+        ],
+        default="CUSTOM",
+    )
+    printer_type: bpy.props.EnumProperty(
+        name="Printer",
+        description="The kind of printer, or the slicer, the file goes to",
+        items=[
+            ("PBF", "PBF (MJF, SLS)",
+             "A build for powder-bed fusion printers: Multi Jet Fusion, SLS and others"),
+            ("ORCA", "Orca / Bambu", "An Orca Slicer or Bambu Studio project with filament colors"),
+            ("PRUSA", "Prusa / SuperSlicer", "A PrusaSlicer or SuperSlicer project with filament colors"),
+        ],
+        default="PBF",
+    )
     use_selection: bpy.props.BoolProperty(
         name="Selection Only",
         description="Export selected objects only.",
@@ -633,6 +682,8 @@ class Export3MF(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
             self.export_mode = prefs.preferences.default_export_mode
             self.batch_keep_hierarchy = prefs.preferences.default_batch_keep_hierarchy
             self.part_names = prefs.preferences.default_part_names
+            self.export_for = prefs.preferences.default_export_for
+            self.printer_type = prefs.preferences.default_printer_type
         if not self.filepath:
             # Name the file after the part when exporting a single part
             # (Blender's default is the .blend file's name).
@@ -655,6 +706,28 @@ class Export3MF(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
         preset_row.menu(EXPORT_MT_threemf_presets.__name__, text=EXPORT_MT_threemf_presets.bl_label)
         preset_row.operator(EXPORT_OT_threemf_preset.bl_idname, text="", icon="ADD")
         preset_row.operator(EXPORT_OT_threemf_preset.bl_idname, text="", icon="REMOVE").remove_active = True
+
+        col = layout.column(align=True)
+        col.prop(self, "export_for")
+        if self.export_for == "PRINTER":
+            col.prop(self, "printer_type")
+        settings = self._export_for_settings()
+        if settings:
+            tip = layout.column(align=True)
+            tip.scale_y = 0.7
+            for i, line in enumerate(EXPORT_FOR_SETTINGS[settings][1]):
+                tip.label(text=line, icon="INFO" if i == 0 else "BLANK1")
+            col = layout.column(align=True)
+            col.prop(self, "use_selection")
+            # A selection already says exactly what to export.
+            sub = col.column(align=True)
+            sub.enabled = not self.use_selection
+            sub.prop(self, "export_hidden")
+            sub.prop(self, "include_disabled")
+            col.prop(self, "use_mesh_modifiers")
+            col.prop(self, "global_scale")
+            self._draw_archive(layout)
+            return
 
         # --- Multi-Color Printing ---
         header, body = layout.panel("EXPORT_3MF_multi_color", default_closed=False)
@@ -712,7 +785,9 @@ class Export3MF(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
             col.prop(self, "global_scale")
             col.prop(self, "coordinate_precision")
 
-        # --- Archive ---
+        self._draw_archive(layout)
+
+    def _draw_archive(self, layout):
         header, body = layout.panel("EXPORT_3MF_archive", default_closed=True)
         header.label(text="Archive", icon="PACKAGE")
         if body:
@@ -820,6 +895,14 @@ class Export3MF(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
         return [(obj, prefix + _safe_filename(obj.name) + self.filename_ext)
                 for obj in objects]
 
+    def _export_for_settings(self):
+        """The key into ``EXPORT_FOR_SETTINGS`` for the chosen Export For, or None for Custom."""
+        if self.export_for == "PART":
+            return "PART"
+        if self.export_for == "PRINTER":
+            return self.printer_type
+        return None
+
     def execute(self, context: bpy.types.Context) -> Set[str]:
         """
         The main routine that writes the 3MF archive.
@@ -828,6 +911,10 @@ class Export3MF(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
         :param context: The Blender context.
         :return: A set of status flags to indicate whether the write succeeded or not.
         """
+        settings = self._export_for_settings()
+        if settings:
+            for name, value in EXPORT_FOR_SETTINGS[settings][0].items():
+                setattr(self, name, value)
         if self.export_mode == "BATCH":
             return self._execute_batch(context)
         return self._export_file(context, self.filepath, None)

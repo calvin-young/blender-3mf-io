@@ -146,6 +146,27 @@ class ThreeMFPreferences(bpy.types.AddonPreferences):
     )
 
     # Export behavior settings
+    default_export_for: bpy.props.EnumProperty(
+        name="Export For",
+        description="What the file is for. Sets the other options to suit it",
+        items=[
+            ("PART", "A Part", "A single part in its own file"),
+            ("PRINTER", "A Printer", "A print file: a build for a powder-bed printer, or a slicer project"),
+            ("CUSTOM", "Custom", "Choose every option yourself"),
+        ],
+        default="PART",
+    )
+    default_printer_type: bpy.props.EnumProperty(
+        name="Printer",
+        description="The kind of printer, or the slicer, the file goes to",
+        items=[
+            ("PBF", "PBF (MJF, SLS)",
+             "A build for powder-bed fusion printers: Multi Jet Fusion, SLS and others"),
+            ("ORCA", "Orca / Bambu", "An Orca Slicer or Bambu Studio project with filament colors"),
+            ("PRUSA", "Prusa / SuperSlicer", "A PrusaSlicer or SuperSlicer project with filament colors"),
+        ],
+        default="PBF",
+    )
     default_export_mode: bpy.props.EnumProperty(
         name="Export As",
         description="How the exported objects are arranged in 3MF files",
@@ -526,6 +547,15 @@ class ThreeMFPreferences(bpy.types.AddonPreferences):
         """Mirror the layout of ``Export3MF.draw()``."""
         layout.use_property_split = True
         layout.use_property_decorate = False
+
+        col = layout.column(align=True)
+        col.prop(self, "default_export_for")
+        if self.default_export_for == "PRINTER":
+            col.prop(self, "default_printer_type")
+        if self.default_export_for != "CUSTOM":
+            tip = layout.column(align=True)
+            tip.scale_y = 0.7
+            tip.label(text="The defaults below apply to Custom exports.", icon="INFO")
 
         # --- Multi-Color Printing ---
         header, body = layout.panel("THREEMF_prefs_export_multi_color", default_closed=False)
