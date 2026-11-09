@@ -40,7 +40,7 @@ import bpy
 import numpy as np
 
 from ..common import debug, warn
-from ..common.constants import MATERIAL_NAMESPACE, MODEL_NAMESPACE, TEXTURE_MIMETYPE_PNG, TEXTURE_MIMETYPE_JPEG
+from ..common.constants import BLENDER_NAMESPACE, MATERIAL_NAMESPACE, MODEL_NAMESPACE, TEXTURE_MIMETYPE_PNG, TEXTURE_MIMETYPE_JPEG
 
 __all__ = [
     "find_layers",
@@ -311,7 +311,9 @@ class LayeredExport:
                     groups.append(group)
             else:
                 blends = [layer["blend"] for layer in layers[1:]]
-                attrib = {"id": str(self._new_id()), "pids": " ".join(g.element.get("id") for g in groups)}
+                attrib = {"id": str(self._new_id()), "pids": " ".join(g.element.get("id") for g in groups),
+                          # Optional, so the material keeps its name on import.
+                          f"{{{BLENDER_NAMESPACE}}}name": str(material_name)}
                 if "multiply" in blends:
                     attrib["blendmethods"] = " ".join(blends)
                 element = sub(resources_element, f"{{{MATERIAL_NAMESPACE}}}multiproperties", attrib)

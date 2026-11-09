@@ -32,7 +32,7 @@ from typing import List, Set, Tuple, TYPE_CHECKING
 import bpy
 import mathutils
 
-from ..common.constants import MATERIAL_NAMESPACE, MODEL_NAMESPACE, MODEL_LOCATION
+from ..common.constants import BLENDER_NAMESPACE, BLENDER_PREFIX, MATERIAL_NAMESPACE, MODEL_NAMESPACE, MODEL_LOCATION
 from ..common.extensions import TRIANGLE_SETS_EXTENSION, MATERIALS_EXTENSION
 from ..common.logging import debug, timing_debug, warn
 from ..common.metadata import Metadata
@@ -473,6 +473,7 @@ class StandardExporter(BaseExporter):
 
         # Register MODEL_NAMESPACE as the default namespace (empty prefix)
         xml.etree.ElementTree.register_namespace("", MODEL_NAMESPACE)
+        xml.etree.ElementTree.register_namespace(BLENDER_PREFIX, BLENDER_NAMESPACE)
 
         # Create model root element
         root = xml.etree.ElementTree.Element(f"{{{MODEL_NAMESPACE}}}model")

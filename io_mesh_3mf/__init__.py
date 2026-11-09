@@ -299,6 +299,11 @@ class ThreeMFPreferences(bpy.types.AddonPreferences):
         "Prevents material duplication when re-importing edited files",
         default=True,
     )
+    default_reuse_images: bpy.props.BoolProperty(
+        name="Reuse Existing Images",
+        description="Reuse an image of the same name (or a numbered copy) when its file contents are identical, instead of adding another copy",
+        default=True,
+    )
 
     default_object_names: bpy.props.EnumProperty(
         name="Object Names",
@@ -615,6 +620,7 @@ class ThreeMFPreferences(bpy.types.AddonPreferences):
         box.label(text="Import Options:", icon="IMPORT")
         box.prop(self, "default_import_materials", text="Material Mode")
         box.prop(self, "default_reuse_materials")
+        box.prop(self, "default_reuse_images")
         box.prop(self, "default_object_names")
         box.prop(self, "default_join_components")
 

@@ -32,6 +32,7 @@ import bpy
 import numpy as np
 
 from ...common.constants import (
+    BLENDER_NAMESPACE,
     MATERIAL_NAMESPACE,
     TEXTURE_MIMETYPE_PNG,
     TEXTURE_MIMETYPE_JPEG,
@@ -523,6 +524,8 @@ def write_texture_resources(
             attrib={
                 "id": group_id,
                 "texid": texture2d_id,
+                # Optional, so the material keeps its name on import.
+                f"{{{BLENDER_NAMESPACE}}}name": str(mat_name),
             },
         )
 

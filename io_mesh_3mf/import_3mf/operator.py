@@ -147,6 +147,11 @@ class Import3MF(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
                     "Prevents material duplication when re-importing edited files",
         default=True,
     )
+    reuse_images: bpy.props.BoolProperty(
+        name="Reuse Existing Images",
+        description="Reuse an image of the same name (or a numbered copy) when its file contents are identical, instead of adding another copy",
+        default=True,
+    )
     object_names: bpy.props.EnumProperty(
         name="Object Names",
         description="What to name the imported objects",
@@ -277,6 +282,7 @@ class Import3MF(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
         box.label(text="Import Options:", icon="IMPORT")
         box.prop(self, "import_materials")
         box.prop(self, "reuse_materials")
+        box.prop(self, "reuse_images")
         box.prop(self, "object_names")
         box.prop(self, "join_components")
 
@@ -317,6 +323,7 @@ class Import3MF(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
             self.global_scale = prefs.preferences.default_import_global_scale
             self.import_materials = prefs.preferences.default_import_materials
             self.reuse_materials = prefs.preferences.default_reuse_materials
+            self.reuse_images = prefs.preferences.default_reuse_images
             self.object_names = prefs.preferences.default_object_names
             self.join_components = prefs.preferences.default_join_components
             self.import_location = prefs.preferences.default_import_location
@@ -451,6 +458,7 @@ class Import3MF(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
             global_scale=self.global_scale,
             import_materials=self.import_materials,
             reuse_materials=self.reuse_materials,
+            reuse_images=self.reuse_images,
             import_location=self.import_location,
             origin_to_geometry=self.origin_to_geometry,
             grid_spacing=self.grid_spacing,

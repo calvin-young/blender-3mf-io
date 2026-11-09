@@ -19,6 +19,8 @@ file locations, MIME types, and relationship types.
 from typing import Set, Dict
 
 __all__ = [
+    "BLENDER_NAMESPACE",
+    "BLENDER_PREFIX",
     "SPEC_VERSION",
     "SUPPORTED_EXTENSIONS",
     "conflicting_mustpreserve_contents",
@@ -119,6 +121,10 @@ MODEL_NAMESPACE: str = "http://schemas.microsoft.com/3dmanufacturing/core/2015/0
 SLIC3RPE_NAMESPACE: str = (
     "http://schemas.slic3r.org/3mf/2017/06"  # PrusaSlicer/Slic3r vendor extension
 )
+# Optional attributes this add-on writes where the spec allows other namespaces
+# (``name`` on texture2dgroup and multiproperties: the Blender material's name).
+BLENDER_NAMESPACE: str = "urn:blender-3mf:material"
+BLENDER_PREFIX: str = "b3mf"
 MODEL_NAMESPACES: Dict[str, str] = {
     "3mf": MODEL_NAMESPACE,
     "slic3rpe": SLIC3RPE_NAMESPACE,

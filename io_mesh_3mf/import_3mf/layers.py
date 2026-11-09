@@ -268,7 +268,9 @@ def _layered_material(
             layers.append(("texture", texture_group.texid, layer_uv_name(position), blend))
             names.append(texture.blender_image.name)
 
-    name = " + ".join(names)
+    # The material's own name when this add-on wrote the file.
+    multiprop = ctx.resource_multiproperties.get(multiprop_id)
+    name = (multiprop.name if multiprop is not None and multiprop.name else None) or " + ".join(names)
     template = base_material or ResourceMaterial()
     material = ResourceMaterial(
         name=name,

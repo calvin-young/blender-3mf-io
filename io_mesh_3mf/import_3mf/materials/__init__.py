@@ -24,6 +24,9 @@ This package handles importing material-related elements from 3MF files:
 from .base import (
     read_materials,
     find_existing_material,
+    find_existing_textured_material,
+    image_hash,
+    same_name,
     parse_hex_color,
     srgb_to_linear,
 )
@@ -53,6 +56,9 @@ __all__ = [
     # base
     "read_materials",
     "find_existing_material",
+    "find_existing_textured_material",
+    "image_hash",
+    "same_name",
     "parse_hex_color",
     "srgb_to_linear",
     # textures

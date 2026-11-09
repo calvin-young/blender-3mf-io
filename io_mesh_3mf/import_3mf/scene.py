@@ -650,6 +650,7 @@ def assign_materials_to_mesh(
     """
     from .materials import (
         find_existing_material,
+        find_existing_textured_material,
         apply_pbr_to_principled,
         apply_pbr_textures_to_material,
         setup_textured_material,
@@ -712,7 +713,30 @@ def assign_materials_to_mesh(
                     and not triangle_material.layers
                     and not has_pbr_textures
                 ):
-                    material = find_existing_material(ctx, material_name, triangle_material.color)
+                    material = find_existing_material(
+                        ctx, material_name, triangle_material.color,
+                        resource_material=triangle_material,
+                    )
+                elif (
+                    ctx.options.reuse_materials
+                    and triangle_material.texture_id is not None
+                    and not has_pbr_textures
+                ):
+                    # Same name and the same images: share it across imports.
+                    images = _texture_images(ctx, triangle_material)
+                    if images:
+                        material = find_existing_textured_material(
+                            material_name, images, resource_material=triangle_material,
+                        )
+                elif ctx.options.reuse_materials and triangle_material.layers:
+                    images = [
+                        ctx.resource_textures[layer[1]].blender_image for layer in triangle_material.layers
+                        if layer[0] == "texture" and layer[1] in ctx.resource_textures
+                    ]
+                    if images and None not in images:
+                        material = find_existing_textured_material(
+                            material_name, images, resource_material=triangle_material,
+                        )
 
                 # Create new material if not found
                 if material is None:
@@ -775,6 +799,19 @@ def set_face_material_indices(mesh: bpy.types.Mesh, indices) -> None:
     if attribute is None:
         attribute = mesh.attributes.new("material_index", "INT", "FACE")
     attribute.data.foreach_set("value", np.asarray(indices, dtype=np.int32))
+
+
+def _texture_images(ctx, triangle_material) -> list:
+    """The Blender images of a textured material's texture groups, or [] if any is missing."""
+    group_ids = [triangle_material.texture_id, *(getattr(triangle_material, "extra_texture_ids", None) or ())]
+    images = []
+    for group_id in group_ids:
+        group = ctx.resource_texture_groups.get(group_id)
+        texture = ctx.resource_textures.get(group.texid) if group else None
+        if texture is None or texture.blender_image is None:
+            return []
+        images.append(texture.blender_image)
+    return images
 
 
 def _setup_textured_blender_material(

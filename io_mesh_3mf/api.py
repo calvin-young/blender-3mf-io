@@ -611,6 +611,7 @@ def import_3mf(
     global_scale: float = 1.0,
     import_materials: str = "MATERIALS",
     reuse_materials: bool = True,
+    reuse_images: bool = True,
     import_location: str = "KEEP",
     origin_to_geometry: str = "KEEP",
     grid_spacing: float = 0.1,
@@ -635,6 +636,7 @@ def import_3mf(
     :param global_scale: Scale multiplier (default 1.0).
     :param import_materials: ``"MATERIALS"`` | ``"PAINT"`` | ``"NONE"``.
     :param reuse_materials: Reuse existing Blender materials by name/color.
+    :param reuse_images: Reuse an image of the same name when its contents are identical.
     :param import_location: ``"ORIGIN"`` | ``"CURSOR"`` | ``"KEEP"`` | ``"GRID"``.
     :param origin_to_geometry: ``"KEEP"`` | ``"CENTER"`` | ``"BOTTOM"``.
     :param grid_spacing: Spacing between objects in grid layout mode.
@@ -696,6 +698,7 @@ def import_3mf(
         global_scale=global_scale,
         import_materials=import_materials,
         reuse_materials=reuse_materials,
+        reuse_images=reuse_images,
         import_location=import_location,
         origin_to_geometry=origin_to_geometry,
         grid_spacing=grid_spacing,

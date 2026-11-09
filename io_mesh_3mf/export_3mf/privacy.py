@@ -31,6 +31,8 @@ names the parts or describes where they came from:
 
 import xml.etree.ElementTree
 
+from ..common.constants import BLENDER_NAMESPACE
+
 __all__ = [
     "strip_model_xml",
     "strip_config_names",
@@ -90,6 +92,9 @@ def strip_model_xml(root: xml.etree.ElementTree.Element, keep_metadata=()) -> No
                 name_key = _attribute_key(child, "name")
                 if name_key is None or child.attrib[name_key] not in keep:
                     parent.remove(child)
+
+        # This add-on's optional material names (texture2dgroup, multiproperties).
+        parent.attrib.pop(f"{{{BLENDER_NAMESPACE}}}name", None)
 
         tag = _local(parent.tag)
         if tag in ("object", "item"):

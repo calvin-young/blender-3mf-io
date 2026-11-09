@@ -201,6 +201,36 @@ class TestLayeredTextureImport(LayeredTexturesTestCase):
         self.assertEqual(label, [(0.25, 0.25), (0.25, 0.75), (0.75, 0.75)])
 
 
+    def test_roundtrip_keeps_material_name(self):
+        self.layered_materials(self.obj)[0].name = "Label over base"
+        root, _ = self.export_model()
+        names = [e.get("{urn:blender-3mf:material}name") for e in self.resources(root, "multiproperties")]
+        self.assertEqual(names, ["Label over base"])
+        for obj in list(bpy.data.objects):
+            bpy.data.objects.remove(obj)
+        for material in list(bpy.data.materials):
+            bpy.data.materials.remove(material)
+        obj = self.import_file(self.temp_file)
+        self.assertEqual([m.name for m in self.layered_materials(obj)], ["Label over base"])
+
+    def test_reimport_shares_the_layered_material(self):
+        path = self.temp_file
+        self.export_model()
+        for obj in list(bpy.data.objects):
+            bpy.data.objects.remove(obj)
+        self.import_file(path)
+        bpy.ops.import_mesh.threemf(filepath=str(path))
+        layered = [m for m in bpy.data.materials if m.get("3mf_layered")]
+        self.assertEqual(len(layered), 1)
+
+    def test_strip_names_removes_material_name(self):
+        bpy.ops.object.select_all(action="SELECT")
+        bpy.ops.export_mesh.threemf(filepath=str(self.temp_file), thumbnail_mode="NONE",
+                                    strip_identifying_data=True)
+        with zipfile.ZipFile(self.temp_file) as archive:
+            self.assertNotIn(b"urn:blender-3mf:material", archive.read("3D/3dmodel.model"))
+
+
 class TestLayeredColorAndMaterialBase(LayeredTexturesTestCase):
     """A texture over a colorgroup color, over a base material, and multiply blending."""
 
