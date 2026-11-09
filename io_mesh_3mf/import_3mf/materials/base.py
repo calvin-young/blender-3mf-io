@@ -142,6 +142,14 @@ def find_existing_textured_material(
     return None
 
 
+def _base_color_linked(material: bpy.types.Material) -> bool:
+    """Whether the material's Base Color comes from a texture or other node, so its
+    unlinked default color says nothing about how it looks."""
+    principled = bpy_extras.node_shader_utils.PrincipledBSDFWrapper(material, is_readonly=True)
+    node = principled.node_principled_bsdf
+    return node is not None and node.inputs["Base Color"].is_linked
+
+
 def find_existing_material(
     op, name: str, color: Tuple[float, float, float, float],
     resource_material=None,
@@ -169,7 +177,7 @@ def find_existing_material(
     # Try to find any material with matching color (fuzzy name match)
     color_tolerance = 0.001
     for mat in bpy.data.materials:
-        if mat.use_nodes and pbr_matches(mat, resource_material):
+        if mat.use_nodes and pbr_matches(mat, resource_material) and not _base_color_linked(mat):
             principled = bpy_extras.node_shader_utils.PrincipledBSDFWrapper(mat, is_readonly=True)
             existing_color = (*principled.base_color, principled.alpha)
             if all(abs(existing_color[i] - color[i]) < color_tolerance for i in range(4)):
