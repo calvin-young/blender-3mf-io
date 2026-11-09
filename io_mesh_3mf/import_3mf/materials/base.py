@@ -19,6 +19,9 @@ This module handles:
 - Material reuse and finding existing materials
 """
 
+import hashlib
+import os
+import re
 from typing import Tuple, Optional, TYPE_CHECKING
 
 import bpy
@@ -78,9 +81,71 @@ def parse_hex_color(hex_color: str) -> Tuple[float, float, float, float]:
     return (0.8, 0.8, 0.8, 1.0)  # Default gray
 
 
+def image_hash(image: bpy.types.Image) -> Optional[str]:
+    """SHA-256 of an image's file bytes, stored on images this add-on imported."""
+    stored = image.get("3mf_hash")
+    if stored:
+        return str(stored)
+    if image.packed_file is not None:
+        return hashlib.sha256(image.packed_file.data).hexdigest()
+    path = bpy.path.abspath(image.filepath) if image.filepath else ""
+    if path and os.path.isfile(path):
+        with open(path, "rb") as f:
+            return hashlib.sha256(f.read()).hexdigest()
+    return None
+
+
+def same_name(existing: str, name: str) -> bool:
+    """Whether *existing* is *name*, or a numbered copy of it (``.001``)."""
+    return existing == name or re.fullmatch(re.escape(name) + r"\.\d{3}", existing) is not None
+
+
+def pbr_matches(material: bpy.types.Material, resource_material) -> bool:
+    """Whether the PBR values the 3MF carries match the material's. Values the file
+    doesn't carry are ignored, so the existing material wins."""
+    if resource_material is None:
+        return True
+    principled = bpy_extras.node_shader_utils.PrincipledBSDFWrapper(material, is_readonly=True)
+    for wanted, have in (
+        (resource_material.metallic, principled.metallic),
+        (resource_material.roughness, principled.roughness),
+        (resource_material.ior, principled.ior),
+        (resource_material.transmission, material.get("3mf_transmission")),
+    ):
+        if wanted is not None and (have is None or abs(float(have) - float(wanted)) > 0.001):
+            return False
+    if resource_material.specular_color is not None:
+        have = material.get("3mf_specular_color")
+        if have is None or any(abs(a - b) > 0.001 for a, b in zip(have, resource_material.specular_color)):
+            return False
+    return True
+
+
+def find_existing_textured_material(
+    name: str, images, resource_material=None,
+) -> Optional[bpy.types.Material]:
+    """An existing material named *name* (or a numbered copy) that uses the same
+    images, compared by content, so repeated imports share one material."""
+    wanted = {image_hash(image) for image in images}
+    if None in wanted:
+        return None
+    for material in bpy.data.materials:
+        if not same_name(material.name, name) or not material.use_nodes or not material.node_tree:
+            continue
+        have = {
+            image_hash(node.image) for node in material.node_tree.nodes
+            if node.type == "TEX_IMAGE" and node.image is not None
+        }
+        if have == wanted and pbr_matches(material, resource_material):
+            debug(f"Reusing existing textured material: {material.name}")
+            return material
+    return None
+
+
 def find_existing_material(
     op, name: str, color: Tuple[float, float, float, float],
     filament_slot: Optional[int] = None,
+    resource_material=None,
 ) -> Optional[bpy.types.Material]:
     """
     Find an existing Blender material that matches the given name and color.
@@ -91,6 +156,7 @@ def find_existing_material(
     :param filament_slot: When set, materials tagged with a different
         ``3mf_filament_slot`` are skipped so equal-coloured slots stay distinct.
         Untagged materials still qualify (the caller claims them by tagging).
+    :param resource_material: When given, PBR values it carries must match too.
     :return: Matching material if found, None otherwise.
     """
     def slot_matches(material) -> bool:
@@ -102,7 +168,7 @@ def find_existing_material(
     # First try exact name match
     if name in bpy.data.materials:
         material = bpy.data.materials[name]
-        if material.use_nodes and slot_matches(material):
+        if material.use_nodes and slot_matches(material) and pbr_matches(material, resource_material):
             principled = bpy_extras.node_shader_utils.PrincipledBSDFWrapper(material, is_readonly=True)
             # Check if colors match (within small tolerance for float comparison)
             existing_color = (*principled.base_color, principled.alpha)
@@ -113,7 +179,7 @@ def find_existing_material(
     # Try to find any material with matching color (fuzzy name match)
     color_tolerance = 0.001
     for mat in bpy.data.materials:
-        if mat.use_nodes and slot_matches(mat):
+        if mat.use_nodes and slot_matches(mat) and pbr_matches(mat, resource_material):
             principled = bpy_extras.node_shader_utils.PrincipledBSDFWrapper(mat, is_readonly=True)
             existing_color = (*principled.base_color, principled.alpha)
             if all(abs(existing_color[i] - color[i]) < color_tolerance for i in range(4)):
@@ -371,7 +437,7 @@ def _read_colorgroups(op, root, material_ns: dict, display_properties: dict) -> 
 
                     mat_color = (red, green, blue, alpha)
                     op.resource_materials[colorgroup_id][index] = ResourceMaterial(
-                        name=f"Orca Color {index}",
+                        name=f"Color {raw_color.upper()}",
                         color=mat_color,
                         metallic=pbr_data.get("metallic"),
                         roughness=pbr_data.get("roughness"),

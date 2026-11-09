@@ -25,6 +25,7 @@ from typing import Dict
 import bpy
 
 from ...common import debug, warn
+from ...common.constants import BLENDER_NAMESPACE
 
 from ...common.types import (
     ResourceComposite,
@@ -119,7 +120,8 @@ def read_multiproperties(op, root, material_ns: Dict[str, str]) -> None:
             multis.append({"pindices": pindices})
 
         op.resource_multiproperties[multi_id] = ResourceMultiproperties(
-            pids=pids, blendmethods=blendmethods, multis=multis
+            pids=pids, blendmethods=blendmethods, multis=multis,
+            name=multi_item.attrib.get(f"{{{BLENDER_NAMESPACE}}}name"),
         )
         debug(f"Parsed multiproperties {multi_id}: {len(multis)} multi entries")
 

@@ -185,6 +185,11 @@ class ThreeMFPreferences(bpy.types.AddonPreferences):
         "Prevents material duplication when re-importing edited files",
         default=True,
     )
+    default_reuse_images: bpy.props.BoolProperty(
+        name="Reuse Existing Images",
+        description="Reuse an image of the same name (or a numbered copy) when its file contents are identical, instead of adding another copy",
+        default=True,
+    )
 
     default_import_location: bpy.props.EnumProperty(
         name="Import Location",
@@ -410,6 +415,7 @@ class ThreeMFPreferences(bpy.types.AddonPreferences):
         col.separator()
         col.prop(self, "default_import_materials", icon="MATERIAL")
         col.prop(self, "default_reuse_materials", icon="LINKED")
+        col.prop(self, "default_reuse_images", icon="IMAGE_DATA")
         col.separator()
         col.label(text="Placement:", icon="OBJECT_ORIGIN")
         col.prop(self, "default_import_location")

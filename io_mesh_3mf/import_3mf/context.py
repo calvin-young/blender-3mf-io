@@ -55,6 +55,7 @@ class ImportOptions:
     global_scale: float = 1.0
     import_materials: str = "MATERIALS"  # "MATERIALS" | "PAINT" | "NONE"
     reuse_materials: bool = True
+    reuse_images: bool = True  # Reuse identical images of the same name
     import_location: str = "KEEP"  # "ORIGIN" | "CURSOR" | "KEEP" | "GRID"
     origin_to_geometry: str = "KEEP"  # "KEEP" | "CENTER" | "BOTTOM"
     grid_spacing: float = 0.1

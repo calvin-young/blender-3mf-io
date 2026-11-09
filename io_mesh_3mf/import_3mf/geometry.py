@@ -585,8 +585,10 @@ def _resolve_multiproperties_material(
     elif texture_group_ids:
         debug(f"Multiproperties {multiprop_id}: found {len(texture_group_ids)} texture groups")
         original_basematerial = material
+        multiproperties = ctx.resource_multiproperties.get(multiprop_id)
         material = ResourceMaterial(
-            name=original_basematerial.name,
+            name=(multiproperties.name if multiproperties and multiproperties.name
+                  else original_basematerial.name),
             color=original_basematerial.color,
             metallic=original_basematerial.metallic,
             roughness=original_basematerial.roughness,

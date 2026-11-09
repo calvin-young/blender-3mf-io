@@ -20,6 +20,7 @@ This module handles:
 - Setting up Blender materials with texture nodes
 """
 
+import hashlib
 import os
 import tempfile
 import zipfile
@@ -28,6 +29,7 @@ from typing import Dict, Optional
 import bpy
 
 from ...common import debug, warn, error
+from ...common.constants import BLENDER_NAMESPACE
 
 from ...common.types import (
     ResourceTexture,
@@ -157,7 +159,8 @@ def read_texture_groups(
             continue
 
         op.resource_texture_groups[group_id] = ResourceTextureGroup(
-            texid=texid, tex2coords=tex2coords, displaypropertiesid=display_props_id
+            texid=texid, tex2coords=tex2coords, displaypropertiesid=display_props_id,
+            name=group_item.attrib.get(f"{{{BLENDER_NAMESPACE}}}name"),
         )
         debug(
             f"Parsed texture2dgroup {group_id}: {len(tex2coords)} UVs referencing texture {texid}"
@@ -186,6 +189,10 @@ def extract_textures_from_archive(op, archive_path: str) -> None:
         import_materials = getattr(getattr(op, "options", None), "import_materials", "MATERIALS")
     if import_materials == "NONE":
         return
+    reuse_images = getattr(op, "reuse_images", None)
+    if reuse_images is None:
+        reuse_images = getattr(getattr(op, "options", None), "reuse_images", True)
+    from .base import image_hash, same_name
 
     try:
         with zipfile.ZipFile(archive_path, "r") as archive:
@@ -200,22 +207,42 @@ def extract_textures_from_archive(op, archive_path: str) -> None:
 
                 try:
                     texture_data = archive.read(tex_path)
+                    digest = hashlib.sha256(texture_data).hexdigest()
 
                     image_name = os.path.basename(tex_path)
                     base_name, ext = os.path.splitext(image_name)
-                    counter = 1
-                    while image_name in bpy.data.images:
-                        image_name = f"{base_name}_{counter}{ext}"
-                        counter += 1
 
-                    with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
-                        tmp.write(texture_data)
-                        tmp_path = tmp.name
+                    # An image of the same name (or a numbered copy) with the same
+                    # bytes is reused, so repeated imports pack one copy.
+                    blender_image = None
+                    if reuse_images:
+                        for existing in bpy.data.images:
+                            numbered = existing.name.startswith(base_name + "_") and (
+                                existing.name[len(base_name) + 1:].split(".")[0].isdigit()
+                            )
+                            if (same_name(existing.name, image_name) or numbered) and (
+                                image_hash(existing) == digest
+                            ):
+                                blender_image = existing
+                                debug(f"Reusing image {existing.name} for {tex_path}")
+                                break
+
+                    tmp_path = None
+                    if blender_image is None:
+                        counter = 1
+                        while image_name in bpy.data.images:
+                            image_name = f"{base_name}_{counter}{ext}"
+                            counter += 1
+                        with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
+                            tmp.write(texture_data)
+                            tmp_path = tmp.name
 
                     try:
-                        blender_image = bpy.data.images.load(tmp_path)
-                        blender_image.name = image_name
-                        blender_image.pack()
+                        if tmp_path is not None:
+                            blender_image = bpy.data.images.load(tmp_path)
+                            blender_image.name = image_name
+                            blender_image.pack()
+                            blender_image["3mf_hash"] = digest
 
                         blender_image["3mf_path"] = texture.path
                         blender_image["3mf_tilestyleu"] = texture.tilestyleu
@@ -234,10 +261,11 @@ def extract_textures_from_archive(op, archive_path: str) -> None:
                         debug(f"Loaded texture {texture_id}: {image_name}")
 
                     finally:
-                        try:
-                            os.unlink(tmp_path)
-                        except OSError:
-                            pass
+                        if tmp_path is not None:
+                            try:
+                                os.unlink(tmp_path)
+                            except OSError:
+                                pass
 
                 except Exception as e:
                     warn(f"Failed to extract texture {texture_id} ({tex_path}): {e}")
@@ -263,8 +291,12 @@ def get_or_create_textured_material(
     if not texture:
         return None
 
-    # Generate a material name based on the texture
-    material_name = f"Texture_{texture_group_id}"
+    # The material's own name when this add-on wrote the file, else the image's.
+    material_name = texture_group.name
+    if not material_name and texture.blender_image is not None:
+        material_name = os.path.splitext(texture.path.replace("\\", "/").rsplit("/", 1)[-1])[0]
+    if not material_name:
+        material_name = f"Texture_{texture_group_id}"
 
     return ResourceMaterial(
         name=material_name,

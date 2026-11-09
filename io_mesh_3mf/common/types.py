@@ -128,6 +128,7 @@ class ResourceTextureGroup:
     texid: str  # ID of referenced <texture2d>
     tex2coords: List[Tuple[float, float]] = field(default_factory=list)
     displaypropertiesid: Optional[str] = None
+    name: Optional[str] = None  # Blender material name written by this add-on
 
 
 @dataclass
@@ -147,6 +148,7 @@ class ResourceMultiproperties:
     pids: str  # Space-delimited property group IDs
     blendmethods: Optional[str] = None
     multis: List[dict] = field(default_factory=list)
+    name: Optional[str] = None  # Blender material name written by this add-on
 
 
 @dataclass
