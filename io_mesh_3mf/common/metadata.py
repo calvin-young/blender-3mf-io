@@ -91,10 +91,16 @@ class Metadata:
             return NotImplemented
         return self.metadata == other.metadata
 
-    def store(self, blender_object: Union[bpy.types.Object, bpy.types.Scene]) -> None:
-        """Store this metadata in a Blender object as custom properties."""
+    def store(self, blender_object: Union[bpy.types.Object, bpy.types.Scene], keep_existing: bool = False) -> None:
+        """Store this metadata in a Blender object as custom properties.
+
+        :param keep_existing: Leave the name and any property that's already there
+            alone, for something the user had before the import (the scene).
+        """
         for metadata_entry in self.values():
             name = str(metadata_entry.name)
+            if keep_existing and (name == "Title" or name in blender_object.keys()):
+                continue
             value = (
                 str(metadata_entry.value) if metadata_entry.value is not None else ""
             )

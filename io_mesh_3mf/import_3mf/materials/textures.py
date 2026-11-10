@@ -248,11 +248,11 @@ def extract_textures_from_archive(op, archive_path: str) -> None:
                             blender_image.name = image_name
                             blender_image.pack()
                             blender_image["3mf_hash"] = digest
-
-                        blender_image["3mf_path"] = texture.path
-                        blender_image["3mf_tilestyleu"] = texture.tilestyleu
-                        blender_image["3mf_tilestylev"] = texture.tilestylev
-                        blender_image["3mf_filter"] = texture.filter
+                            # Only on a new image: a reused one stays as it was.
+                            blender_image["3mf_path"] = texture.path
+                            blender_image["3mf_tilestyleu"] = texture.tilestyleu
+                            blender_image["3mf_tilestylev"] = texture.tilestylev
+                            blender_image["3mf_filter"] = texture.filter
 
                         op.resource_textures[texture_id] = ResourceTexture(
                             path=texture.path,

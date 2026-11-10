@@ -504,7 +504,8 @@ class Import3MF(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
         self._progress_prefix = ""
 
         # Store scene-level data.
-        scene_metadata.store(bpy.context.scene)
+        # The scene was there before the import: add metadata, change nothing.
+        scene_metadata.store(bpy.context.scene, keep_existing=True)
         annotations.store()
         _store_passthrough_impl(ctx)
 
