@@ -966,6 +966,27 @@ class StandardExporter(BaseExporter):
 
         :param with_children: False writes the object alone (Flatten Hierarchy).
         """
+        object_id, transformation = self._write_object_resource(
+            resources_element, blender_object, with_children
+        )
+        if object_id is not None:
+            # An object with components goes after the objects they refer to:
+            # lib3mf-based readers (Netfabb, SmartStream, Magics) need them first.
+            for element in reversed(resources_element):
+                if element.get(self.attr("id")) == str(object_id):
+                    if any(child.tag.endswith("components") for child in element):
+                        resources_element.remove(element)
+                        resources_element.append(element)
+                    break
+        return object_id, transformation
+
+    def _write_object_resource(
+        self,
+        resources_element: xml.etree.ElementTree.Element,
+        blender_object: bpy.types.Object,
+        with_children: bool = True,
+    ) -> Tuple[int, mathutils.Matrix]:
+        """The body of :meth:`write_object_resource`, which then puts the object in order."""
         ctx = self.ctx
         debug(
             f"write_object_resource called for: {blender_object.name}, type: {blender_object.type}"

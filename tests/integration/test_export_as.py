@@ -64,6 +64,19 @@ class TestExportAs(Blender3mfTestCase):
                     objects = root.findall(f"{NS}resources/{NS}object")
                     self.assertEqual(len(objects), 20, "each mesh written once")
 
+    def test_components_refer_to_objects_defined_before_them(self):
+        """lib3mf-based readers refuse a component that refers to a later object."""
+        for parent_type in ("EMPTY", "MESH"):
+            self.clean_scene()
+            self.add_parts(parent_type)
+            root = self.export(export_as="PRINT_FILE", printer_type="PBF", print_parts="OBJECTS")
+            seen = set()
+            for obj in root.findall(f"{NS}resources/{NS}object"):
+                for component in obj.iter(f"{NS}component"):
+                    self.assertIn(component.get("objectid"), seen,
+                                  f"{parent_type}: object {obj.get('id')} refers to a later object")
+                seen.add(obj.get("id"))
+
     def test_custom_uses_the_options_given(self):
         self.add_cubes()
         root = self.export(export_as="CUSTOM", export_mode="ONE_PART", use_orca_format="STANDARD")
