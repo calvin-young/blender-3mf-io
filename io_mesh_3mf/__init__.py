@@ -146,15 +146,16 @@ class ThreeMFPreferences(bpy.types.AddonPreferences):
     )
 
     # Export behavior settings
-    default_export_for: bpy.props.EnumProperty(
-        name="Export For",
-        description="What the file is for. Sets the other options to suit it",
+    default_export_as: bpy.props.EnumProperty(
+        name="Export As",
+        description="What kind of file to write. Sets the other options to suit it",
         items=[
-            ("PART", "A Part", "A single part in its own file"),
-            ("PRINTER", "A Printer", "A print file: a build for a powder-bed printer, or a slicer project"),
+            ("PART_FILE", "A Part File", "A single part in its own file"),
+            ("PRINT_FILE", "A Print File",
+             "A build for a powder-bed printer, or a slicer project, with each part where it belongs"),
             ("CUSTOM", "Custom", "Choose every option yourself"),
         ],
-        default="PART",
+        default="PART_FILE",
     )
     default_printer_type: bpy.props.EnumProperty(
         name="Printer",
@@ -167,8 +168,18 @@ class ThreeMFPreferences(bpy.types.AddonPreferences):
         ],
         default="PBF",
     )
+    default_print_parts: bpy.props.EnumProperty(
+        name="Parts",
+        description="What makes one part in a print file",
+        items=[
+            ("OBJECTS", "One per Object",
+             "An object and everything parented to it make one part, made of components"),
+            ("MESHES", "One per Mesh", "Every mesh is its own part"),
+        ],
+        default="OBJECTS",
+    )
     default_export_mode: bpy.props.EnumProperty(
-        name="Export As",
+        name="Layout",
         description="How the exported objects are arranged in 3MF files",
         items=[
             ("PARTS", "Separate Parts in One File",
@@ -554,10 +565,11 @@ class ThreeMFPreferences(bpy.types.AddonPreferences):
         layout.use_property_decorate = False
 
         col = layout.column(align=True)
-        col.prop(self, "default_export_for")
-        if self.default_export_for == "PRINTER":
+        col.prop(self, "default_export_as")
+        if self.default_export_as == "PRINT_FILE":
             col.prop(self, "default_printer_type")
-        if self.default_export_for != "CUSTOM":
+            col.prop(self, "default_print_parts")
+        if self.default_export_as != "CUSTOM":
             tip = layout.column(align=True)
             tip.scale_y = 0.7
             tip.label(text="The defaults below apply to Custom exports.", icon="INFO")

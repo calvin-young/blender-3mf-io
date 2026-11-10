@@ -115,14 +115,18 @@ The importer can also preserve:
 
 Export from **File → Export → 3D Manufacturing Format (.3mf)**.
 
-Start with **Export For**, which sets the other options for you:
+Start with **Export As**, which sets the other options for you:
 
-| Export For | What you get |
+| Export As | What you get |
 |---|---|
-| **A Part** (default) | All objects as one part, named after the file, with colors and textures, centered |
-| **A Printer → PBF (MJF, SLS)** | Each object a part, kept where it is in the scene, with colors and textures |
-| **A Printer → Orca / Bambu** or **Prusa / SuperSlicer** | Each object a part, centered, colors as filaments for that slicer |
+| **A Part File** (default) | All objects as one part, named after the file, with colors and textures, centered |
+| **A Print File → PBF (MJF, SLS)** | Parts kept where they are in the scene, with colors and textures |
+| **A Print File → Orca / Bambu** or **Prusa / SuperSlicer** | Parts centered, colors as filaments for that slicer |
 | **Custom** | Every option below, to set yourself |
+
+For a print file, **Parts** decides what counts as one part: **One per Object** makes an object and everything
+parented to it one part (five parents with four meshes each give 5 parts), **One per Mesh** makes every mesh its
+own part (20 parts).
 
 With **Custom**, the key export setting is **Material Export Mode**:
 
@@ -139,7 +143,7 @@ That includes both workflows the add-on supports:
 - a simple per-object or per-face material color workflow
 - the full paint workflow with editable paint, seam, and support layers
 
-**Export As** decides how the exported objects are arranged in 3MF files:
+With **Custom**, **Layout** decides how the exported objects are arranged in 3MF files:
 
 | You want | Choose | What's in the file | Default name |
 |---|---|---|---|

@@ -358,31 +358,17 @@ def _discard_archive(archive, filepath: str) -> None:
         debug(f"Removing the unfinished archive failed: {e}")
 
 
-# Settings that "Export For" chooses, and the summary the dialog shows for them.
+# Settings that "Export As" chooses for a part file and each kind of print file.
 # Custom leaves every option to the user.
-EXPORT_FOR_SETTINGS = {
-    "PART": (
-        {"export_mode": "ONE_PART", "use_orca_format": "STANDARD", "export_location": "CENTER",
-         "part_names": "AUTO", "use_components": True, "flatten_hierarchy": False},
-        ("One part, named after the file.", "Colors and textures. Centered."),
-    ),
-    "PBF": (
-        {"export_mode": "PARTS", "use_orca_format": "STANDARD", "export_location": "KEEP",
-         "part_names": "AUTO", "use_components": True, "flatten_hierarchy": False},
-        ("Each object a part, kept in place.", "Colors and textures."),
-    ),
-    "ORCA": (
-        {"export_mode": "PARTS", "use_orca_format": "AUTO", "mmu_slicer_format": "ORCA",
-         "export_location": "CENTER", "part_names": "AUTO", "use_components": True,
-         "flatten_hierarchy": False},
-        ("Each object a part, centered.", "Colors become filaments."),
-    ),
-    "PRUSA": (
-        {"export_mode": "PARTS", "use_orca_format": "AUTO", "mmu_slicer_format": "PRUSA",
-         "export_location": "CENTER", "part_names": "AUTO", "use_components": True,
-         "flatten_hierarchy": False},
-        ("Each object a part, centered.", "Colors become filaments."),
-    ),
+EXPORT_AS_SETTINGS = {
+    "PART": {"export_mode": "ONE_PART", "use_orca_format": "STANDARD", "export_location": "CENTER",
+             "part_names": "AUTO", "use_components": True, "flatten_hierarchy": False},
+    "PBF": {"export_mode": "PARTS", "use_orca_format": "STANDARD", "export_location": "KEEP",
+            "part_names": "AUTO", "use_components": True},
+    "ORCA": {"export_mode": "PARTS", "use_orca_format": "AUTO", "mmu_slicer_format": "ORCA",
+             "export_location": "CENTER", "part_names": "AUTO", "use_components": True},
+    "PRUSA": {"export_mode": "PARTS", "use_orca_format": "AUTO", "mmu_slicer_format": "PRUSA",
+              "export_location": "CENTER", "part_names": "AUTO", "use_components": True},
 }
 
 
@@ -399,12 +385,13 @@ class Export3MF(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
 
     # Options for the user.
     filter_glob: bpy.props.StringProperty(default="*.3mf", options={"HIDDEN"})
-    export_for: bpy.props.EnumProperty(
-        name="Export For",
-        description="What the file is for. Sets the other options to suit it",
+    export_as: bpy.props.EnumProperty(
+        name="Export As",
+        description="What kind of file to write. Sets the other options to suit it",
         items=[
-            ("PART", "A Part", "A single part in its own file"),
-            ("PRINTER", "A Printer", "A print file: a build for a powder-bed printer, or a slicer project"),
+            ("PART_FILE", "A Part File", "A single part in its own file"),
+            ("PRINT_FILE", "A Print File",
+             "A build for a powder-bed printer, or a slicer project, with each part where it belongs"),
             ("CUSTOM", "Custom", "Choose every option yourself"),
         ],
         default="CUSTOM",
@@ -420,13 +407,23 @@ class Export3MF(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
         ],
         default="PBF",
     )
+    print_parts: bpy.props.EnumProperty(
+        name="Parts",
+        description="What makes one part in a print file",
+        items=[
+            ("OBJECTS", "One per Object",
+             "An object and everything parented to it make one part, made of components"),
+            ("MESHES", "One per Mesh", "Every mesh is its own part"),
+        ],
+        default="OBJECTS",
+    )
     use_selection: bpy.props.BoolProperty(
         name="Selection Only",
         description="Export selected objects only.",
         default=False,
     )
     export_mode: bpy.props.EnumProperty(
-        name="Export As",
+        name="Layout",
         description="How the exported objects are arranged in 3MF files",
         items=[
             ("PARTS", "Separate Parts in One File",
@@ -682,8 +679,9 @@ class Export3MF(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
             self.export_mode = prefs.preferences.default_export_mode
             self.batch_keep_hierarchy = prefs.preferences.default_batch_keep_hierarchy
             self.part_names = prefs.preferences.default_part_names
-            self.export_for = prefs.preferences.default_export_for
+            self.export_as = prefs.preferences.default_export_as
             self.printer_type = prefs.preferences.default_printer_type
+            self.print_parts = prefs.preferences.default_print_parts
         if not self.filepath:
             # Name the file after the part when exporting a single part
             # (Blender's default is the .blend file's name).
@@ -708,14 +706,15 @@ class Export3MF(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
         preset_row.operator(EXPORT_OT_threemf_preset.bl_idname, text="", icon="REMOVE").remove_active = True
 
         col = layout.column(align=True)
-        col.prop(self, "export_for")
-        if self.export_for == "PRINTER":
+        col.prop(self, "export_as")
+        if self.export_as == "PRINT_FILE":
             col.prop(self, "printer_type")
-        settings = self._export_for_settings()
+            col.prop(self, "print_parts")
+        settings = self._export_as_settings()
         if settings:
             tip = layout.column(align=True)
             tip.scale_y = 0.7
-            for i, line in enumerate(EXPORT_FOR_SETTINGS[settings][1]):
+            for i, line in enumerate(self._export_as_summary()):
                 tip.label(text=line, icon="INFO" if i == 0 else "BLANK1")
             col = layout.column(align=True)
             col.prop(self, "use_selection")
@@ -895,13 +894,22 @@ class Export3MF(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
         return [(obj, prefix + _safe_filename(obj.name) + self.filename_ext)
                 for obj in objects]
 
-    def _export_for_settings(self):
-        """The key into ``EXPORT_FOR_SETTINGS`` for the chosen Export For, or None for Custom."""
-        if self.export_for == "PART":
-            return "PART"
-        if self.export_for == "PRINTER":
-            return self.printer_type
+    def _export_as_settings(self):
+        """The options Export As sets, or None for Custom."""
+        if self.export_as == "PART_FILE":
+            return EXPORT_AS_SETTINGS["PART"]
+        if self.export_as == "PRINT_FILE":
+            return {**EXPORT_AS_SETTINGS[self.printer_type],
+                    "flatten_hierarchy": self.print_parts == "MESHES"}
         return None
+
+    def _export_as_summary(self):
+        """Two short lines saying what Export As will write."""
+        if self.export_as == "PART_FILE":
+            return ("One part, named after the file.", "Colors and textures. Centered.")
+        if self.printer_type == "PBF":
+            return ("Parts kept in place.", "Colors and textures.")
+        return ("Parts centered on the bed.", "Colors become filaments.")
 
     def execute(self, context: bpy.types.Context) -> Set[str]:
         """
@@ -911,9 +919,9 @@ class Export3MF(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
         :param context: The Blender context.
         :return: A set of status flags to indicate whether the write succeeded or not.
         """
-        settings = self._export_for_settings()
+        settings = self._export_as_settings()
         if settings:
-            for name, value in EXPORT_FOR_SETTINGS[settings][0].items():
+            for name, value in settings.items():
                 setattr(self, name, value)
         if self.export_mode == "BATCH":
             return self._execute_batch(context)

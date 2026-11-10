@@ -787,16 +787,12 @@ class StandardExporter(BaseExporter):
                     phase=1,  # Geometry
                 )
 
-            # When flatten_hierarchy is enabled, EMPTYs are dissolved:
-            # their mesh descendants become individual build items with
-            # their full world transform, avoiding <components> containers
-            # that some printing services reject.
-            if ctx.options.flatten_hierarchy and blender_object.type == "EMPTY":
-                child_meshes = collect_mesh_objects(
-                    [blender_object],
-                    export_hidden=ctx.options.export_hidden,
-                    include_disabled=ctx.options.include_disabled,
-                )
+            # When flatten_hierarchy is enabled, hierarchies are dissolved:
+            # every mesh in them becomes its own build item with its full
+            # world transform, avoiding <components> containers that some
+            # printing services reject.
+            if self._flattens(blender_object):
+                child_meshes = self._flat_meshes(blender_object)
                 if child_meshes:
                     debug(
                         f"Flattening EMPTY '{blender_object.name}': "
@@ -804,7 +800,7 @@ class StandardExporter(BaseExporter):
                     )
                 for child_obj in child_meshes:
                     child_id, _ = self.write_object_resource(
-                        resources_element, child_obj
+                        resources_element, child_obj, with_children=False
                     )
                     if child_id is None:
                         continue
@@ -893,15 +889,35 @@ class StandardExporter(BaseExporter):
                 continue
             if not is_export_root(blender_object, exported):
                 continue
-            if ctx.options.flatten_hierarchy and blender_object.type == "EMPTY":
-                items.extend(collect_mesh_objects(
-                    [blender_object],
-                    export_hidden=ctx.options.export_hidden,
-                    include_disabled=ctx.options.include_disabled,
-                ))
+            if self._flattens(blender_object):
+                items.extend(self._flat_meshes(blender_object))
             else:
                 items.append(blender_object)
         return items
+
+    def _flattens(self, blender_object) -> bool:
+        """Whether Flatten Hierarchy writes this object's meshes as separate build items."""
+        return self.ctx.options.flatten_hierarchy and (
+            blender_object.type == "EMPTY" or bool(blender_object.children)
+        )
+
+    def _flat_meshes(self, blender_object) -> List[bpy.types.Object]:
+        """Every mesh in a hierarchy, the top object included, for Flatten Hierarchy."""
+        ctx = self.ctx
+        meshes = []
+
+        def walk(obj):
+            if not ctx.options.export_hidden and not obj.visible_get():
+                return
+            if not ctx.options.include_disabled and obj.hide_render:
+                return
+            if obj.type == "MESH" and len(obj.data.polygons):
+                meshes.append(obj)
+            for child in obj.children:
+                walk(child)
+
+        walk(blender_object)
+        return meshes
 
     def _write_build_item(
         self,
@@ -943,9 +959,12 @@ class StandardExporter(BaseExporter):
         self,
         resources_element: xml.etree.ElementTree.Element,
         blender_object: bpy.types.Object,
+        with_children: bool = True,
     ) -> Tuple[int, mathutils.Matrix]:
         """
         Write a single Blender object and all of its children to the resources of a 3MF document.
+
+        :param with_children: False writes the object alone (Flatten Hierarchy).
         """
         ctx = self.ctx
         debug(
@@ -974,7 +993,7 @@ class StandardExporter(BaseExporter):
         mesh_transformation = blender_object.matrix_world
 
         # A batch export of single objects leaves the children to their own files.
-        child_objects = [] if ctx.options.single_object else blender_object.children
+        child_objects = [] if ctx.options.single_object or not with_children else blender_object.children
         components_element = None
         if child_objects:
             # Filter to MESH and EMPTY children (recurse into nested empties)
