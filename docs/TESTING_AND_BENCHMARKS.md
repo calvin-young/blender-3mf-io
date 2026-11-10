@@ -102,10 +102,16 @@ open. The cause isn't known.
 | Degenerate triangles | "Failed to import" | "Invalid Model Coordinate Indices" | lib3mf refuses | Reads it |
 | A file with every object type, including `other` | loads | refuses: bad enum constant, which type wasn't isolated | | Keeps the imported type |
 | Layered file from upstream, repaired thumbnail | loads | "Resource Index is invalid" | | The fork's layered export loads |
+| A component referring to an object defined later in the file | "Failed to import" | "Could not find Object associated to Component" | MiniMagics crashes | Every export of a parent with children did this until 2.7.7-fork.11 |
 
 Other messages seen: Netfabb warns "A MeshObject with triangle-properties is missing an object-level property"
 when textured objects have no default `pid`; the fork now writes one. An inside-out mesh shows solid dark red with a
 warning triangle in Netfabb, and a red badge and red build box in SmartStream, whatever its colors are.
+
+The `b3mf:name` attribute this add-on writes on textured and layered materials (2.7.7-fork.9) loads without
+complaint in SmartStream, Netfabb and MiniMagics (2026-11-09). Print files with 5 parents of 4 meshes each load as
+5 parts in SmartStream and MiniMagics and 5 groups in Netfabb (Parts: One per Object), or 20 parts everywhere
+(One per Mesh).
 
 ## What programs write
 
@@ -139,7 +145,6 @@ Build Manager (the software that ships with HP Jet Fusion printers). Linux: Orca
 - **Printing:** every result above is what a program shows, not what prints. Layered textures print on the 580
   when sent through the API (user report); print one of this add-on's layered exports, including label textures
   that are replaced at job submission. A print sent through SmartStream, which may flatten the layers.
-- **The `b3mf:name` material attribute** (2.7.7-fork.9) hasn't been opened in SmartStream, Netfabb or MiniMagics yet.
 - **Other producers not in the corpus:** Autodesk Fusion / Inventor,
   Microsoft 3D Builder, Materialise 3-matic, Siemens NX, SolidWorks, Rhino, 3D Systems 3D Sprint, Stratasys
   GrabCAD Print, Cura, Bambu Studio, nTopology.
