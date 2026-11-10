@@ -140,5 +140,15 @@ class TestTextureNames(Blender3mfTestCase):
         self.assertEqual([m.name for m in bpy.data.materials if m.name.startswith("Red")], ["Red"])
 
 
+class TestColorNames(unittest.TestCase):
+
+    def test_nearest_everyday_name(self):
+        from io_mesh_3mf.common.colors import approximate_color_name
+        self.assertEqual(approximate_color_name("#3070C0"), "Blue")
+        self.assertEqual(approximate_color_name("#FF0000"), "Red")
+        self.assertEqual(approximate_color_name("#FFFFFF"), "White")
+        self.assertEqual(approximate_color_name("#E7E7E7"), "Light Grey")
+
+
 if __name__ == "__main__":
     unittest.main()
