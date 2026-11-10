@@ -18,6 +18,7 @@ bridge the two representations.
 from typing import Tuple
 
 __all__ = [
+    "approximate_color_name",
     "srgb_to_linear",
     "linear_to_srgb",
     "hex_to_rgb",
@@ -124,6 +125,36 @@ SUBTYPE_COLORS = {
     "support_enforcer": (0x39, 0x39, 0x77, 0xFC),
     "negative_part": (0x39, 0x39, 0x3C, 0xFC),
 }
+
+
+# Hue ranges (degrees, upper bound) and their everyday names.
+_HUE_NAMES = (
+    (15, "Red"), (40, "Orange"), (65, "Yellow"), (160, "Green"), (195, "Cyan"),
+    (255, "Blue"), (290, "Purple"), (345, "Magenta"), (360, "Red"),
+)
+
+
+def approximate_color_name(hex_str: str) -> str:
+    """An everyday name for an sRGB hex color, so imported colors can be told apart
+    at a glance (``#3070C0`` -> ``Blue``, ``#E7E7E7`` -> ``Light Grey``)."""
+    import colorsys
+    hex_str = hex_str.lstrip("#")
+    r, g, b = (int(hex_str[i:i + 2], 16) / 255 for i in (0, 2, 4))
+    hue, lightness, saturation = colorsys.rgb_to_hls(r, g, b)
+    if saturation < 0.15 or max(r, g, b) - min(r, g, b) < 0.08:
+        for limit, name in ((0.1, "Black"), (0.35, "Dark Grey"), (0.65, "Grey"), (0.92, "Light Grey")):
+            if lightness < limit:
+                return name
+        return "White"
+    degrees = hue * 360
+    name = next(n for limit, n in _HUE_NAMES if degrees < limit)
+    if name in ("Orange", "Yellow") and lightness < 0.35:
+        return "Brown"
+    if lightness < 0.25:
+        return f"Dark {name}"
+    if lightness > 0.75:
+        return "Pink" if name in ("Red", "Magenta") else f"Light {name}"
+    return name
 
 
 def apply_subtype_material(blender_object, subtype: str) -> None:

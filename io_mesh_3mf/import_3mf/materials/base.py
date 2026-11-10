@@ -28,6 +28,7 @@ import bpy
 import bpy_extras.node_shader_utils
 
 from ...common import debug, warn
+from ...common.colors import approximate_color_name
 
 if TYPE_CHECKING:
     pass  # Import3MF will be in import_3mf.operator once created
@@ -442,7 +443,7 @@ def _read_colorgroups(op, root, material_ns: dict, display_properties: dict) -> 
 
                     mat_color = (red, green, blue, alpha)
                     op.resource_materials[colorgroup_id][index] = ResourceMaterial(
-                        name=f"Color {raw_color.upper()}",
+                        name=f"Color {raw_color.upper()} ({approximate_color_name(raw_color)})",
                         color=mat_color,
                         metallic=pbr_data.get("metallic"),
                         roughness=pbr_data.get("roughness"),
