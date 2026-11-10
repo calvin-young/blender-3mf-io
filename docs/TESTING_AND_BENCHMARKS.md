@@ -83,8 +83,9 @@ what prints. "Grey" means the program showed its default color.
 | Rhino 8 | grey | grey | not checked | yes | yes | one layer only | not checked | not checked |
 | CAD Assistant | first color on every object | file refused | not checked | grey | file refused | file refused | first color | not checked |
 
-A viewport showing one layer doesn't mean the print loses the others: a user reports printing layered textures on
-the Jet Fusion 580 all the time, though SmartStream shows only one layer on screen.
+Layered textures print on the Jet Fusion 580 when the job is sent through the printer's API (user report; through
+Magics presumably too, not checked). SmartStream itself may flatten the layers: it shows one, and prints sent
+through it haven't been tested.
 
 Slicer paint attributes (`paint_color`, `slic3rpe:mmu_segmentation`) show as plain grey in SmartStream and Netfabb.
 Files this add-on imports from a slicer and exports again as a standard 3MF keep their colors everywhere.
@@ -136,8 +137,8 @@ Build Manager (the software that ships with HP Jet Fusion printers). Linux: Orca
 ## Blind spots (to test later)
 
 - **Printing:** every result above is what a program shows, not what prints. Layered textures print on the 580
-  (user report); print one of this add-on's layered exports, including label textures that are replaced at job
-  submission. Select a printer in SmartStream and check what it keeps.
+  when sent through the API (user report); print one of this add-on's layered exports, including label textures
+  that are replaced at job submission. A print sent through SmartStream, which may flatten the layers.
 - **The `b3mf:name` material attribute** (2.7.7-fork.9) hasn't been opened in SmartStream, Netfabb or MiniMagics yet.
 - **Other producers not in the corpus:** Autodesk Fusion / Inventor,
   Microsoft 3D Builder, Materialise 3-matic, Siemens NX, SolidWorks, Rhino, 3D Systems 3D Sprint, Stratasys
