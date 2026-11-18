@@ -108,6 +108,7 @@ def parse_model(
     """
     report = progress or (lambda fraction: None)
     data = _read(model_file, report)
+    _record_namespaces(ctx, data)
     try:
         root = _parse_split(ctx, data, report)
     except Exception as e:  # Anything unexpected: parse the whole document normally.
@@ -135,6 +136,18 @@ def _read(model_file: IO[bytes], report: Callable[[float], None]) -> bytes:
         done += len(chunk)
         report(_READ_SHARE * min(done / size, 1.0))
     return b"".join(chunks)
+
+
+def _record_namespaces(ctx: "ImportContext", data: bytes) -> None:
+    """Remember the prefixes declared on the model root (the first file to declare one wins)."""
+    try:
+        prefixes, _ = _namespace_prefixes(data)
+        for uri, prefix in prefixes.items():
+            prefix = prefix.rstrip(b":").decode("utf-8")
+            if prefix and prefix != "xml":
+                ctx.metadata_namespaces.setdefault(prefix, uri.decode("utf-8"))
+    except Exception as e:
+        debug(f"Namespace declarations not recorded: {e}")
 
 
 def _parse_whole(data: bytes) -> xml.etree.ElementTree.Element:

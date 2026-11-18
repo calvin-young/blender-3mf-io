@@ -35,7 +35,7 @@ import mathutils
 from ..common.constants import BLENDER_NAMESPACE, BLENDER_PREFIX, MATERIAL_NAMESPACE, MODEL_NAMESPACE, MODEL_LOCATION
 from ..common.extensions import TRIANGLE_SETS_EXTENSION, MATERIALS_EXTENSION
 from ..common.logging import debug, timing_debug, warn
-from ..common.metadata import Metadata, stamp_application
+from ..common.metadata import Metadata, metadata_namespace_uri, stamp_application
 from ..common.xml import format_transformation
 
 from .archive import write_core_properties
@@ -198,23 +198,25 @@ def _stream_model_to_file(output, root: xml.etree.ElementTree.Element) -> None:
         if is_root:
             # Emit namespace declarations on the root element.
             ns_uris = _collect_ns(elem, set())
+            declared = set()
             for uri in sorted(ns_uris):
                 if uri in _IMPLICIT_NS:
                     continue
                 prefix = uri_to_prefix.get(uri)
                 if prefix is None:
                     continue
+                declared.add(prefix)
                 if prefix == "":
                     attr_parts.append(f'xmlns="{uri}"')
                 else:
                     attr_parts.append(f'xmlns:{prefix}="{uri}"')
 
             # A metadata name's prefix must be declared, and some readers refuse
-            # the file otherwise. Names imported from other programs keep their
-            # prefix but not its URI, which isn't stored, so these get a stand-in.
-            declared = set(uri_to_prefix.values())
+            # the file otherwise. Use the URI recorded by set_metadata() or read
+            # from an imported file, else a stand-in.
             for prefix in sorted(_collect_metadata_prefixes(elem, set()) - declared):
-                attr_parts.append(f'xmlns:{prefix}="urn:3mf-metadata:{prefix}"')
+                uri = metadata_namespace_uri(prefix) or f"urn:3mf-metadata:{prefix}"
+                attr_parts.append(f'xmlns:{prefix}="{_attr_escape(uri)}"')
 
         for k, v in elem.attrib.items():
             attr_parts.append(f'{_qname(k)}="{_attr_escape(v)}"')

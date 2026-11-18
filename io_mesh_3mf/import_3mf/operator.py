@@ -41,7 +41,7 @@ from ..common.constants import (
     MATERIAL_NAMESPACE,
 )
 from ..common.extensions import get_extension_by_namespace
-from ..common.metadata import Metadata, MetadataEntry
+from ..common.metadata import Metadata, MetadataEntry, declare_metadata_namespace
 from ..common.annotations import Annotations
 from ..common.units import blender_to_metre, threemf_to_metre
 from .context import ImportContext, ImportOptions
@@ -500,6 +500,8 @@ class Import3MF(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
         # Store scene-level data.
         # The scene was there before the import: add metadata, change nothing.
         scene_metadata.store(bpy.context.scene, keep_existing=True)
+        for prefix, uri in ctx.metadata_namespaces.items():
+            declare_metadata_namespace(prefix, uri, bpy.context.scene, replace=False)
         annotations.store()
         _store_passthrough_impl(ctx)
 

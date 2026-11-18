@@ -159,6 +159,10 @@ class ImportContext:
     # and re-parsing the same file when multiple components share one path.
     loaded_external_paths: Set[str] = field(default_factory=set)
 
+    # Namespace declarations ({prefix: URI}) on the model roots read so far,
+    # so metadata names like "ns:key" keep their real URI on re-export.
+    metadata_namespaces: Dict[str, str] = field(default_factory=dict)
+
     # --- Helpers ------------------------------------------------------------
 
     def safe_report(self, level: Set[str], message: str) -> None:

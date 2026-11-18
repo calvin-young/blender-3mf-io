@@ -77,7 +77,7 @@ from .common.constants import (
 )
 from .common.extensions import ExtensionManager
 from .common.logging import debug, error, warn
-from .common.metadata import Metadata, MetadataEntry
+from .common.metadata import Metadata, MetadataEntry, declare_metadata_namespace
 from .common.units import (
     blender_to_metre,
     export_unit_scale,
@@ -893,6 +893,8 @@ def import_3mf(
 
     # Store scene data.
     scene_metadata.store(bpy.context.scene)
+    for prefix, uri in ctx.metadata_namespaces.items():
+        declare_metadata_namespace(prefix, uri, bpy.context.scene, replace=False)
     annotations_obj.store()
     _store_passthrough_impl(ctx)
 

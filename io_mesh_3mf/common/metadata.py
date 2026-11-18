@@ -20,7 +20,9 @@ conflicting and excluded from output.
 """
 
 import collections
-from typing import Iterator, Union
+import json
+import re
+from typing import Any, Dict, Iterator, Optional, Union
 
 import bpy.types
 import idprop.types
@@ -33,7 +35,88 @@ __all__ = [
     "Metadata",
     "MetadataEntry",
     "stamp_application",
+    "NAMESPACES_PROPERTY",
+    "declare_metadata_namespace",
+    "metadata_namespace_uri",
+    "set_metadata",
+    "get_metadata",
 ]
+
+# Scene property holding ``{prefix: namespace URI}`` for metadata names such as
+# ``"ns:key"``: declared by set_metadata(), and read from imported files, so a
+# re-export declares each prefix with its real URI.
+NAMESPACES_PROPERTY = "3mf_metadata_namespaces"
+
+_PREFIX = re.compile(r"^([A-Za-z_][\w.-]*):")
+
+
+def declare_metadata_namespace(prefix: str, uri: str, scene=None, replace: bool = True) -> None:
+    """Record the namespace URI that a metadata name prefix stands for.
+
+    :param replace: Overwrite an existing different URI for this prefix.
+    """
+    import bpy
+    scene = scene or bpy.context.scene
+    table = dict(scene.get(NAMESPACES_PROPERTY, {}))
+    if replace or prefix not in table:
+        table[prefix] = uri
+    scene[NAMESPACES_PROPERTY] = table
+
+
+def metadata_namespace_uri(prefix: str, scene=None) -> Optional[str]:
+    """The URI recorded for *prefix* in the scene, or None."""
+    import bpy
+    scene = scene or bpy.context.scene
+    uri = scene.get(NAMESPACES_PROPERTY, {}).get(prefix) if scene is not None else None
+    return str(uri) if uri else None
+
+
+def set_metadata(
+    target: Union[bpy.types.Object, bpy.types.Scene],
+    name: str,
+    value: Any,
+    namespace: Optional[str] = None,
+    preserve: bool = True,
+) -> None:
+    """Attach a 3MF metadata entry to an object (its part) or the scene (the model).
+
+    Exported as ``<metadata>`` in the object's ``<metadatagroup>``, or at the
+    top of the model for the scene, and read back the same way on import.
+
+    :param name: ``"prefix:key"``. Names without a prefix are reserved for the
+        core specification's own names (Title, Designer, ...).
+    :param value: A string, or anything ``json.dumps`` accepts (stored as JSON).
+    :param namespace: The URI the prefix stands for. Needed once per prefix,
+        unless the prefix came in with an imported file.
+    :param preserve: Ask programs that edit the file to keep this entry.
+    """
+    match = _PREFIX.match(name)
+    if match is None and not isinstance(target, bpy.types.Scene):
+        raise ValueError(f"Metadata name {name!r} needs a namespace prefix, such as 'myapp:{name}'")
+    if namespace:
+        if match is None:
+            raise ValueError(f"Metadata name {name!r} has no prefix for namespace {namespace!r}")
+        declare_metadata_namespace(match.group(1), namespace)
+    if not isinstance(value, str):
+        value = json.dumps(value, sort_keys=True)
+    target[name] = {"datatype": "xs:string", "preserve": bool(preserve), "value": value}
+
+
+def get_metadata(target: Union[bpy.types.Object, bpy.types.Scene], name: str, parse_json: bool = False) -> Any:
+    """The value of a metadata entry set by :func:`set_metadata` or imported, or None.
+
+    :param parse_json: Decode the value as JSON (returns the string if it isn't JSON).
+    """
+    entry = target.get(name)
+    if entry is None or not hasattr(entry, "keys") or "value" not in entry.keys():
+        return None
+    value = entry["value"]
+    if parse_json and isinstance(value, str):
+        try:
+            return json.loads(value)
+        except ValueError:
+            return value
+    return value
 
 
 def stamp_application(metadata: "Metadata") -> None:
