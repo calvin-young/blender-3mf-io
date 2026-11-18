@@ -38,6 +38,8 @@ import numpy as np
 
 from ..common.colors import hex_to_rgb
 from ..common.constants import (
+    BLENDER_NAMESPACE,
+    BLENDER_PREFIX,
     MODEL_NAMESPACE,
     MODEL_LOCATION,
     MODEL_REL,
@@ -47,6 +49,7 @@ from ..common.constants import (
 )
 from ..common.extensions import PRODUCTION_EXTENSION, ORCA_EXTENSION
 from ..common.logging import debug, timing_debug, warn, error
+from ..common.version import application_name
 from ..common.xml import format_transformation
 
 from .geometry import _raw_geometry_cache, format_triangles_xml, format_vertices_xml
@@ -773,6 +776,7 @@ class OrcaExporter(BaseExporter):
                 "xmlns": MODEL_NAMESPACE,
                 "xmlns:BambuStudio": BAMBU_NAMESPACE,
                 "xmlns:p": PRODUCTION_NAMESPACE,
+                f"xmlns:{BLENDER_PREFIX}": BLENDER_NAMESPACE,
                 "requiredextensions": "p",
             },
         )
@@ -785,6 +789,12 @@ class OrcaExporter(BaseExporter):
             root, "metadata", attrib={"name": "Application"}
         )
         meta_app.text = "BambuStudio-2.3.0"
+        # Application has to name Bambu Studio, so the Blender and add-on
+        # versions that wrote the file go under a name of our own.
+        meta_writer = xml.etree.ElementTree.SubElement(
+            root, "metadata", attrib={"name": f"{BLENDER_PREFIX}:Application"}
+        )
+        meta_writer.text = application_name()
 
         meta_version = xml.etree.ElementTree.SubElement(
             root, "metadata", attrib={"name": "BambuStudio:3mfVersion"}

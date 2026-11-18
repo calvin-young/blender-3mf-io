@@ -374,3 +374,29 @@ class TestStripArchive(Blender3mfTestCase):
         self.assertNotIn(b"secret_label_name", everything)
         self.assertFalse(any("secret" in name for name in names))
         self.assertTrue(any(name.startswith("3D/Textures/texture_") for name in names), names)
+
+
+class TestOrcaApplicationStamp(Blender3mfTestCase):
+    """Orca exports keep Bambu Studio's Application and carry the stamp under b3mf:Application."""
+
+    def _model(self, **kwargs):
+        bpy.ops.mesh.primitive_cube_add()
+        material = bpy.data.materials.new("red")
+        material.diffuse_color = (1, 0, 0, 1)
+        bpy.context.object.data.materials.append(material)
+        result = bpy.ops.export_mesh.threemf(filepath=str(self.temp_file), use_orca_format="PAINT",
+                                            mmu_slicer_format="ORCA", **kwargs)
+        self.assertIn("FINISHED", result)
+        with zipfile.ZipFile(self.temp_file) as archive:
+            return archive.read("3D/3dmodel.model").decode("utf-8")
+
+    def test_stamp(self):
+        model = self._model()
+        self.assertIn('<metadata name="Application">BambuStudio-', model)
+        self.assertIn('<metadata name="b3mf:Application">Blender ', model)
+        self.assertIn('xmlns:b3mf="urn:blender-3mf:material"', model)
+
+    def test_strip_removes_stamp(self):
+        model = self._model(strip_identifying_data=True)
+        self.assertNotIn("b3mf:Application", model)
+        self.assertIn('name="Application"', model)

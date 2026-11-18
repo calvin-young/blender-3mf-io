@@ -15,7 +15,9 @@ travel inside it:
 3. **Hybrid workflows:** parts made in Blender may be packed in another program (Magics, Netfabb), and builds made
    elsewhere may be opened in Blender. Losing metadata in another program is acceptable; losing it silently in
    Blender is not.
-4. **Traceability:** every file says which software wrote it (**built**: the `Application` stamp).
+4. **Traceability:** every file says which software wrote it (**built**: the `Application` stamp). Orca Slicer and
+   Bambu Studio exports must keep `Application` = `BambuStudio-...` to open as projects, so they carry the same
+   stamp as `b3mf:Application`. Strip Names & Metadata removes both.
 
 ## What the 3MF core specification offers
 
