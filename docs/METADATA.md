@@ -23,7 +23,7 @@ travel inside it:
 |---|---|---|---|
 | `<metadata name="ns:key">` on the model | top of the model document | facts about the whole file (a build's printer, packing settings) | one per file: merging part files loses all but one file's entries |
 | `<metadatagroup>` on an `<object>` | inside the part's resource | facts about one part design | readers may drop it (to be tested, below) |
-| `<metadatagroup>` on a build `<item>` | the placed copy | facts about one copy (serial number, label text) | packers create new items, so it's the first thing lost |
+| `<metadatagroup>` on a build `<item>` | the placed copy | facts about one copy (serial number, label text) | packers create new items, so it's the first thing lost; this add-on reads it but writes per-copy data on each copy's object instead |
 | A file in the package with a MustPreserve relationship | `/Metadata/x.json` | large data | belongs to the package, not to a part: merged builds can't tell whose it is, and two part files collide on the same path |
 
 Names other than the core's well-known ones (Title, Designer, Description, Copyright, LicenseTerms, Rating,
@@ -74,8 +74,8 @@ with `xmlns:bb="urn:bucket-builder"` (proposed; Bucket Builder's to decide). Buc
 calling the exporter, through `io_mesh_3mf.api.metadata.set_metadata(scene, "bb:printer", {...},
 namespace="urn:bucket-builder")`. Noted for Bucket Builder's export wiring (its issue #9).
 
-**Per-copy data (serial numbers, label text) goes on the build item's metadatagroup.** Bucket Builder's labeled
-copies are the case for it.
+**Per-copy data (serial numbers, label text)** goes on each copy's Blender object, like any other metadata: the
+exporter gives every copy its own object in the file. Bucket Builder's labeled copies are the case for it.
 
 ## How metadata travels through Blender (built, 2.7.7-fork.12)
 
@@ -90,10 +90,14 @@ copies are the case for it.
 - **Packing in Blender:** moving and duplicating objects keeps their custom properties, so part parameters survive
   import, pack and export. Joining meshes keeps only the active object's properties.
 
-**Known gap (to fix):** on import, a part's object-level and item-level metadata merge into the one Blender object,
-and on export everything goes to the build item's metadatagroup, the level that packers drop first. Proposed rule:
-write custom entries to the object's metadatagroup; among linked duplicates sharing one mesh, entries that differ
-between copies go to the build items. The 3MF Zoo file `core-23-meta-object-group` shows the gap.
+- **Where it's written (2.7.7-fork.14 and later):** each Blender object's custom metadata goes in its own
+  `<object>`'s metadatagroup, once. Linked duplicates (one mesh, several objects) are written as one shared mesh
+  plus a small container object per copy, and each container carries that copy's metadata, part number and type.
+  Build items carry no metadata groups. Before, plain objects had their metadata on both the object and the build
+  item, and linked duplicates only on the build items, the level packers drop first.
+- **Per-copy data from other programs:** a file with metadata on its build items (the 3MF Zoo file
+  `core-23-meta-object-group`) imports with each copy's item metadata on that copy's Blender object, and exports
+  it on the copy's object. Nothing is lost; it moves from the item to the object.
 
 ## Hybrid workflows
 

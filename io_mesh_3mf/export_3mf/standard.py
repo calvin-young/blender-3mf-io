@@ -960,18 +960,15 @@ class StandardExporter(BaseExporter):
                 mesh_transformation
             )
 
+        # The object's custom metadata goes on its <object> only (see
+        # write_object_resource and _write_component_instance): the object is
+        # the part, and programs that re-arrange a build make new items.
         metadata = Metadata()
         metadata.retrieve(blender_object)
         if "3mf:partnumber" in metadata:
             item_element.attrib[self.attr("partnumber")] = metadata[
                 "3mf:partnumber"
             ].value
-            del metadata["3mf:partnumber"]
-        if group_metadata_names(metadata):
-            metadatagroup_element = xml.etree.ElementTree.SubElement(
-                item_element, f"{{{MODEL_NAMESPACE}}}metadatagroup"
-            )
-            write_metadata(metadatagroup_element, metadata, ctx.options.use_orca_format, in_group=True)
 
     def write_object_resource(
         self,
@@ -1595,6 +1592,22 @@ class StandardExporter(BaseExporter):
         object_element.attrib[self.attr("id")] = str(instance_id)
         object_name = self.part_name(blender_object)
         object_element.attrib[self.attr("name")] = object_name
+
+        # Each copy has its own container object, which carries that copy's
+        # part number, type and metadata.
+        metadata = Metadata()
+        metadata.retrieve(blender_object)
+        if "3mf:partnumber" in metadata:
+            object_element.attrib[self.attr("partnumber")] = metadata["3mf:partnumber"].value
+        if "3mf:object_type" in metadata:
+            object_type = metadata["3mf:object_type"].value
+            if object_type != "model":
+                object_element.attrib[self.attr("type")] = object_type
+        if group_metadata_names(metadata):
+            metadatagroup_element = xml.etree.ElementTree.SubElement(
+                object_element, f"{{{MODEL_NAMESPACE}}}metadatagroup"
+            )
+            write_metadata(metadatagroup_element, metadata, ctx.options.use_orca_format, in_group=True)
 
         components_element = xml.etree.ElementTree.SubElement(
             object_element, f"{{{MODEL_NAMESPACE}}}components"

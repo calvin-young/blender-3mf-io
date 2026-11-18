@@ -69,3 +69,34 @@ class TestCustomMetadata(Blender3mfTestCase):
                                             strip_identifying_data=True)
         self.assertIn("FINISHED", result)
         self.assertNotIn("gen:parameters", self._model_xml())
+
+
+class TestMetadataOnParts(Blender3mfTestCase):
+    """Each part's metadata goes on its <object> once, also for linked duplicates."""
+
+    def test_objects_carry_metadata_items_do_not(self):
+        import re
+        bpy.ops.mesh.primitive_cube_add()
+        first = bpy.context.object
+        set_metadata(first, "gen:parameters", {"t": 1}, namespace=NS)
+        set_metadata(first, "gen:serial", "SN-1")
+        bpy.ops.object.duplicate_move_linked()
+        second = bpy.context.object
+        second.location.x += 5
+        set_metadata(second, "gen:serial", "SN-2")
+        bpy.ops.mesh.primitive_cube_add(location=(0, 9, 0))
+        set_metadata(bpy.context.object, "gen:parameters", {"t": 2})
+        result = bpy.ops.export_mesh.threemf(filepath=str(self.temp_file), use_orca_format="STANDARD",
+                                            export_location="KEEP")
+        self.assertIn("FINISHED", result)
+        with zipfile.ZipFile(self.temp_file) as archive:
+            xml = archive.read("3D/3dmodel.model").decode("utf-8")
+        build = xml[xml.index("<build"):]
+        self.assertNotIn("metadatagroup", build)
+        self.assertEqual(xml.count('name="gen:parameters"'), 3)
+        self.assertEqual(len(re.findall(r'name="gen:serial"[^>]*>SN-[12]<', xml)), 2)
+
+        self.clean_scene()
+        bpy.ops.import_mesh.threemf(filepath=str(self.temp_file))
+        serials = sorted(filter(None, (get_metadata(obj, "gen:serial") for obj in bpy.context.scene.objects)))
+        self.assertEqual(serials, ["SN-1", "SN-2"])
