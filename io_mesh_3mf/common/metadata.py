@@ -32,7 +32,21 @@ MetadataEntry = collections.namedtuple(
 __all__ = [
     "Metadata",
     "MetadataEntry",
+    "stamp_application",
 ]
+
+
+def stamp_application(metadata: "Metadata") -> None:
+    """Record this Blender and add-on as the file's ``Application``.
+
+    Replaces an ``Application`` entry carried over from an imported file:
+    the program writing the file is this one.
+    """
+    from .version import application_name
+    del metadata["Application"]
+    metadata["Application"] = MetadataEntry(
+        name="Application", preserve=False, datatype="xs:string", value=application_name()
+    )
 
 
 class Metadata:

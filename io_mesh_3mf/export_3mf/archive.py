@@ -30,6 +30,7 @@ import bpy
 
 from ..common.annotations import Annotations
 from ..common.logging import debug, error
+from ..common.version import ADDON_NAME, application_name
 from ..common.constants import (
     CORE_PROPERTIES_LOCATION,
     CORE_PROPERTIES_NAMESPACE,
@@ -129,7 +130,9 @@ def write_core_properties(archive: zipfile.ZipFile, include_timestamps: bool = T
     date as defined by the Open Packaging Conventions specification.
 
     :param archive: The 3MF archive to write Core Properties into.
-    :param include_timestamps: Write the created / modified dates.
+    :param include_timestamps: Write the created / modified dates, and the
+        Blender and add-on versions in ``dc:creator`` (off when stripping
+        identifying data).
     """
     # Register namespaces for cleaner output
     xml.etree.ElementTree.register_namespace("cp", CORE_PROPERTIES_NAMESPACE)
@@ -143,7 +146,7 @@ def write_core_properties(archive: zipfile.ZipFile, include_timestamps: bool = T
 
     # dc:creator - who created this file
     creator = xml.etree.ElementTree.SubElement(root, f"{{{DC_NAMESPACE}}}creator")
-    creator.text = "Blender 3MF Format Add-on"
+    creator.text = application_name() if include_timestamps else ADDON_NAME
 
     if include_timestamps:
         # dcterms:created - when the file was created (W3CDTF format)

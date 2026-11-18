@@ -35,7 +35,7 @@ import mathutils
 from ..common.constants import BLENDER_NAMESPACE, BLENDER_PREFIX, MATERIAL_NAMESPACE, MODEL_NAMESPACE, MODEL_LOCATION
 from ..common.extensions import TRIANGLE_SETS_EXTENSION, MATERIALS_EXTENSION
 from ..common.logging import debug, timing_debug, warn
-from ..common.metadata import Metadata
+from ..common.metadata import Metadata, stamp_application
 from ..common.xml import format_transformation
 
 from .archive import write_core_properties
@@ -482,6 +482,7 @@ class StandardExporter(BaseExporter):
 
         scene_metadata = Metadata()
         scene_metadata.retrieve(bpy.context.scene)
+        stamp_application(scene_metadata)
         write_metadata(root, scene_metadata, ctx.options.use_orca_format)
 
         resources_element = xml.etree.ElementTree.SubElement(

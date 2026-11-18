@@ -296,3 +296,38 @@ class FullExportArchiveTests(Blender3mfTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestApplicationStamp(Blender3mfTestCase):
+    """Every export records the Blender and add-on versions that wrote it."""
+
+    def _export(self, **kwargs):
+        bpy.ops.mesh.primitive_cube_add()
+        path = self.temp_file
+        result = bpy.ops.export_mesh.threemf(filepath=str(path), **kwargs)
+        self.assertIn("FINISHED", result)
+        with zipfile.ZipFile(path) as archive:
+            return (archive.read("3D/3dmodel.model").decode("utf-8"),
+                    archive.read("docProps/core.xml").decode("utf-8"))
+
+    def test_application_metadata(self):
+        from io_mesh_3mf.common.version import addon_version
+        model, core = self._export(use_orca_format="STANDARD")
+        expected = f"Blender {bpy.app.version_string}; Blender 3MF Format Add-on {addon_version()}"
+        self.assertNotEqual(addon_version(), "unknown")
+        self.assertIn(f'<metadata name="Application" type="xs:string">{expected}</metadata>', model)
+        self.assertIn(expected, core)
+
+    def test_replaces_imported_application(self):
+        bpy.context.scene["Application"] = {"datatype": "xs:string", "preserve": False, "value": "Other Program 1.0"}
+        try:
+            model, _ = self._export(use_orca_format="STANDARD")
+        finally:
+            del bpy.context.scene["Application"]
+        self.assertNotIn("Other Program", model)
+        self.assertIn("Blender 3MF Format Add-on", model)
+
+    def test_strip_removes_versions(self):
+        model, core = self._export(use_orca_format="STANDARD", strip_identifying_data=True)
+        self.assertNotIn('name="Application"', model)
+        self.assertNotIn(bpy.app.version_string, core)

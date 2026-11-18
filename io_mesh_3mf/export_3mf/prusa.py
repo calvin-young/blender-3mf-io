@@ -28,7 +28,7 @@ import bpy
 
 from ..common.constants import MODEL_NAMESPACE, MODEL_LOCATION
 from ..common.logging import debug, warn
-from ..common.metadata import Metadata, MetadataEntry
+from ..common.metadata import Metadata, MetadataEntry, stamp_application
 
 from .archive import write_core_properties
 from .geometry import write_metadata
@@ -396,6 +396,7 @@ class PrusaExporter(BaseExporter):
         # Add scene metadata first
         scene_metadata = Metadata()
         scene_metadata.retrieve(bpy.context.scene)
+        stamp_application(scene_metadata)
 
         # Add PrusaSlicer metadata if not already present in scene
         if "slic3rpe:Version3mf" not in scene_metadata:
