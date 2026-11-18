@@ -364,11 +364,10 @@ class Import3MF(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
         self._progress_prefix = ""
         self._progress_window: Optional[ProgressReporter] = None
         wm = getattr(context, "window_manager", None)
-        if wm:
-            if hasattr(wm, "progress_begin"):
-                wm.progress_begin(0, 100)
-            if hasattr(wm, "status_text_set"):
-                wm.status_text_set(message)
+        # No wm.progress_begin(): its number on the mouse cursor flickers, and
+        # the status text and viewport bar already show progress.
+        if wm and hasattr(wm, "status_text_set"):
+            wm.status_text_set(message)
         # Start browser progress card if threshold is met.
         # Compute total file size across all paths being imported.
         import os as _os
@@ -403,8 +402,6 @@ class Import3MF(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
         new_value = max(current, value)
         self._progress_value = new_value
         wm = getattr(ctx_bl, "window_manager", None)
-        if wm and hasattr(wm, "progress_update"):
-            wm.progress_update(new_value)
         if message:
             message = self._progress_prefix + message
         if message and wm and hasattr(wm, "status_text_set"):
@@ -430,11 +427,8 @@ class Import3MF(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
         if not ctx_bl:
             return
         wm = getattr(ctx_bl, "window_manager", None)
-        if wm:
-            if hasattr(wm, "progress_end"):
-                wm.progress_end()
-            if hasattr(wm, "status_text_set"):
-                wm.status_text_set(None)
+        if wm and hasattr(wm, "status_text_set"):
+            wm.status_text_set(None)
         self._progress_context = None
         pw = getattr(self, "_progress_window", None)
         if pw is not None:

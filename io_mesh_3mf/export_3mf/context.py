@@ -136,15 +136,14 @@ class ExportContext:
                 debug(message)
 
     def _progress_begin(self, context, message: str) -> None:
-        """Begin progress tracking via Blender's window manager."""
+        """Begin progress tracking (status bar text; the viewport bar shows the percentage)."""
+        # No window_manager.progress_begin(): its number on the mouse cursor
+        # flickers, and the status text and viewport bar already show progress.
         self._progress_context = context
         self._progress_value = 0
         window_manager = getattr(context, "window_manager", None)
-        if window_manager:
-            if hasattr(window_manager, "progress_begin"):
-                window_manager.progress_begin(0, 100)
-            if hasattr(window_manager, "status_text_set"):
-                window_manager.status_text_set(message)
+        if window_manager and hasattr(window_manager, "status_text_set"):
+            window_manager.status_text_set(message)
 
     def _progress_update(self, value: int, message: Optional[str] = None, phase: Optional[int] = None) -> None:
         """Update progress bar (monotonically increasing)."""
@@ -154,8 +153,6 @@ class ExportContext:
         new_value = max(self._progress_value, value)
         self._progress_value = new_value
         window_manager = getattr(context, "window_manager", None)
-        if window_manager and hasattr(window_manager, "progress_update"):
-            window_manager.progress_update(new_value)
         if message and window_manager and hasattr(window_manager, "status_text_set"):
             window_manager.status_text_set(message)
         # Forward to browser progress window
@@ -183,11 +180,8 @@ class ExportContext:
         if not context:
             return
         window_manager = getattr(context, "window_manager", None)
-        if window_manager:
-            if hasattr(window_manager, "progress_end"):
-                window_manager.progress_end()
-            if hasattr(window_manager, "status_text_set"):
-                window_manager.status_text_set(None)
+        if window_manager and hasattr(window_manager, "status_text_set"):
+            window_manager.status_text_set(None)
         self._progress_context = None
         if self.progress is not None:
             self.progress.finish()
