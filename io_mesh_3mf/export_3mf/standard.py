@@ -303,6 +303,7 @@ class BaseExporter:
         self._parts = set()  # Objects written as build items (the "parts"); see part_name()
         self._one_part = False  # Grouping several objects into one part
         self._one_part_members = []  # (object ID, transformation) when grouping into one part
+        self._scale = 1.0  # Unit and export scale, applied to vertices (see write_objects)
 
     def part_name(self, blender_object: bpy.types.Object) -> str:
         """The name to write for an object, following the Part Names option.
@@ -714,9 +715,15 @@ class StandardExporter(BaseExporter):
         as component instances for smaller file sizes.
         """
         ctx = self.ctx
-        transformation = mathutils.Matrix.Scale(global_scale, 4)
+        # The unit and export scale go into the vertices, so every transform in
+        # the file is only rotation and translation: readers that ignore or
+        # mishandle scaled transforms get the right size, and a wrong scale
+        # shows in the geometry itself. Placements scale only their translation.
+        self._scale = global_scale
+        transformation = mathutils.Matrix.Identity(4)
         if ctx.options.export_location == "CENTER":
-            transformation = self._compute_centering_offset(blender_objects, transformation) @ transformation
+            transformation = self._compute_centering_offset(
+                blender_objects, mathutils.Matrix.Scale(global_scale, 4))
 
         # Detect linked duplicates if component optimization is enabled
         component_groups = {}
@@ -809,7 +816,7 @@ class StandardExporter(BaseExporter):
                         continue
                     self._write_build_item(
                         build_element, child_id,
-                        transformation @ child_obj.matrix_world,
+                        transformation @ self._scaled(child_obj.matrix_world),
                         child_obj,
                     )
                 continue
@@ -836,7 +843,7 @@ class StandardExporter(BaseExporter):
 
             self._write_build_item(
                 build_element, objectid,
-                transformation @ blender_object.matrix_world,
+                transformation @ self._scaled(blender_object.matrix_world),
                 blender_object,
             )
 
@@ -921,6 +928,14 @@ class StandardExporter(BaseExporter):
 
         walk(blender_object)
         return meshes
+
+    def _scaled(self, matrix: mathutils.Matrix) -> mathutils.Matrix:
+        """*matrix* for vertices that carry the export scale: only its translation is scaled."""
+        if self._scale == 1.0:
+            return matrix
+        scaled = matrix.copy()
+        scaled.translation = matrix.translation * self._scale
+        return scaled
 
     def _write_build_item(
         self,
@@ -1035,7 +1050,7 @@ class StandardExporter(BaseExporter):
                     )
                     if child_id is None:
                         continue
-                    child_transformation = (
+                    child_transformation = self._scaled(
                         mesh_transformation.inverted_safe() @ child_transformation
                     )
                     component_element = xml.etree.ElementTree.SubElement(
@@ -1224,6 +1239,7 @@ class StandardExporter(BaseExporter):
                 mesh.vertices,
                 ctx.options.use_orca_format,
                 ctx.options.coordinate_precision,
+                self._scale,
             )
             timing_debug(f"write_vertices wall '{object_name}'", (time.perf_counter() - _t_verts) * 1000)
 
@@ -1531,6 +1547,7 @@ class StandardExporter(BaseExporter):
                 mesh.vertices,
                 ctx.options.use_orca_format,
                 ctx.options.coordinate_precision,
+                self._scale,
             )
 
             write_triangles(

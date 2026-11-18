@@ -216,6 +216,7 @@ def write_vertices(
     vertices: List[bpy.types.MeshVertex],
     use_orca_format: str,
     coordinate_precision: int,
+    scale: float = 1.0,
 ) -> None:
     """
     Writes vertex geometry into the specified mesh element.
@@ -229,6 +230,7 @@ def write_vertices(
     :param vertices: A list of Blender vertices to add.
     :param use_orca_format: Material export mode (unused, kept for API compat).
     :param coordinate_precision: Number of significant figures for coordinates.
+    :param scale: Factor applied to every coordinate (the unit and export scale).
     """
     n = len(vertices)
     if n == 0:
@@ -241,6 +243,8 @@ def write_vertices(
     coords_flat = np.empty(n * 3, dtype=np.float64)
     vertices.foreach_get("co", coords_flat)
     coords = coords_flat.reshape(n, 3)
+    if scale != 1.0:
+        coords *= scale
 
     _t1 = time.perf_counter()
     timing_debug(f"write_vertices foreach_get ({n} verts)", (_t1 - _t0) * 1000)

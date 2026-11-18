@@ -100,4 +100,6 @@ def export_unit_scale(context: bpy.types.Context, global_scale: float = 1.0) -> 
     threemf_unit_to_metre = threemf_to_metre[MODEL_DEFAULT_UNIT]  # Always export as mm
 
     scale *= blender_unit_to_metre / threemf_unit_to_metre
-    return scale
+    # Unit Scale and Scale are single-precision floats (0.001 is stored as
+    # 0.0010000000475): round to their precision, so 1 mm units give exactly 1.
+    return float(f"{scale:.7g}")

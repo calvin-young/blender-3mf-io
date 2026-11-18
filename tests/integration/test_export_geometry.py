@@ -8,6 +8,8 @@ Runs inside real Blender (``--background --factory-startup``).
 import unittest
 import xml.etree.ElementTree as ET
 
+import zipfile
+
 import bpy
 
 from test_base import Blender3mfTestCase
@@ -168,3 +170,43 @@ class TestCheckNonManifoldGeometry(Blender3mfTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestUnitScaleInVertices(Blender3mfTestCase):
+    """The unit and export scale go into the vertices; transforms stay rotation and translation."""
+
+    def _export(self, scale_length, length_unit, global_scale=1.0):
+        import re
+        units = bpy.context.scene.unit_settings
+        units.system = "METRIC"
+        units.scale_length = scale_length
+        units.length_unit = length_unit
+        bpy.ops.mesh.primitive_cube_add(size=20, location=(100, 50, 10))
+        result = bpy.ops.export_mesh.threemf(filepath=str(self.temp_file), use_orca_format="STANDARD",
+                                            export_location="KEEP", global_scale=global_scale)
+        self.assertIn("FINISHED", result)
+        with zipfile.ZipFile(self.temp_file) as archive:
+            model = archive.read("3D/3dmodel.model").decode()
+        xs = [float(x) for x in re.findall(r'<vertex x="([^"]+)"', model)]
+        transform = [float(v) for v in re.search(r'<item [^>]*transform="([^"]+)"', model).group(1).split()]
+        return max(xs) - min(xs), transform
+
+    def test_millimetre_scene(self):
+        """1 Blender unit = 1 mm (Unit Scale 0.001): coordinates are written unchanged."""
+        width, transform = self._export(0.001, "MILLIMETERS")
+        self.assertEqual(width, 20.0)
+        self.assertEqual(transform[:9], [1, 0, 0, 0, 1, 0, 0, 0, 1])
+        self.assertEqual(transform[9:], [100, 50, 10])
+
+    def test_metre_scene(self):
+        """Default scene (1 unit = 1 m): the cube is 20 m, in the vertices, not in the transform."""
+        width, transform = self._export(1.0, "METERS")
+        self.assertEqual(width, 20000.0)
+        self.assertEqual(transform[:9], [1, 0, 0, 0, 1, 0, 0, 0, 1])
+        self.assertEqual(transform[9:], [100000, 50000, 10000])
+
+    def test_scale_applied_twice_shows_in_geometry(self):
+        """Unit Scale 0.001 and Scale 0.001 together: the part really is 0.02 mm, and the export says so."""
+        width, transform = self._export(0.001, "MILLIMETERS", global_scale=0.001)
+        self.assertAlmostEqual(width, 0.02, places=6)
+        self.assertEqual(transform[:9], [1, 0, 0, 0, 1, 0, 0, 0, 1])
