@@ -113,6 +113,26 @@ complaint in SmartStream, Netfabb and MiniMagics (2026-11-09). Print files with 
 5 parts in SmartStream and MiniMagics and 5 groups in Netfabb (Parts: One per Object), or 20 parts everywhere
 (One per Mesh).
 
+## Which readers keep metadata
+
+Four synthetic files in [3MF Zoo](https://github.com/calvin-young/3mf-zoo) hold the same made-up generator
+parameters (JSON) in the four places the specification allows, plus the core `Application` name:
+`core-22-meta-model-namespaced` (model `<metadata>` in a declared namespace), `core-23-meta-object-group` (object
+and build-item `<metadatagroup>`), `core-24-meta-attachment` (`/Metadata/parameters.json` with a MustPreserve
+relationship) and `core-25-meta-application`. "Kept" means the entry is still there after the program opens the file
+and saves or exports it again. The design this feeds is [METADATA.md](METADATA.md).
+
+| Program | Model metadata (namespaced) | Object metadatagroup | Item metadatagroup | JSON attachment (MustPreserve) | Application |
+|---|---|---|---|---|---|
+| This add-on, 2.7.7-fork.12 (import, export Standard) | kept, with its namespace | moved to the build item | kept | kept | replaced with its own |
+| Netfabb 2021.1 | queued | queued | queued | queued | queued |
+| MiniMagics 23.5 | queued | queued | queued | queued | queued |
+| Houdini 20.5, Palace3D | queued | queued | queued | queued | queued |
+| Rhino 8 | queued | queued | queued | queued | queued |
+| PrusaSlicer 2.9.6 | queued | queued | queued | queued | queued |
+| OrcaSlicer 2.4.2 (Bambu Studio alike) | queued | queued | queued | queued | queued |
+| SmartStream 2.0, 3D Builder | can't save 3MF: check that the files load | | | | |
+
 ## What programs write
 
 | Program | Can it write 3MF? | Structure it writes | Notes |
