@@ -924,6 +924,12 @@ class OrcaExporter(BaseExporter):
 
         if self.ctx.options.strip_identifying_data:
             strip_model_xml(root, keep_metadata={"Application"})
+            ctx = self.ctx
+            if (ctx.project_template_path or ctx.options.slicer_profile != "NONE"
+                    or get_stashed_config("Metadata/project_settings.config") is not None):
+                # Preset names are how the slicer matches its settings; only the
+                # built-in template's are known to say nothing about the user.
+                ctx.safe_report({"WARNING"}, "Slicer settings are kept as they are: their printer, print and filament preset names may identify you")
 
         # Write to archive
         document = xml.etree.ElementTree.ElementTree(root)

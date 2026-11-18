@@ -90,7 +90,7 @@ exporter gives every copy its own object in the file. Bucket Builder's labeled c
 - **Packing in Blender:** moving and duplicating objects keeps their custom properties, so part parameters survive
   import, pack and export. Joining meshes keeps only the active object's properties.
 
-- **Where it's written (2.7.7-fork.14 and later):** each Blender object's custom metadata goes in its own
+- **Where it's written (2.7.7-fork.15 and later):** each Blender object's custom metadata goes in its own
   `<object>`'s metadatagroup, once. Linked duplicates (one mesh, several objects) are written as one shared mesh
   plus a small container object per copy, and each container carries that copy's metadata, part number and type.
   Build items carry no metadata groups. Before, plain objects had their metadata on both the object and the build

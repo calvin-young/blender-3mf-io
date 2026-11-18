@@ -124,7 +124,7 @@ and saves or exports it again. The design this feeds is [METADATA.md](METADATA.m
 
 | Program | Model metadata (namespaced) | Object metadatagroup | Item metadatagroup | JSON attachment (MustPreserve) | Application |
 |---|---|---|---|---|---|
-| This add-on, 2.7.7-fork.14 (import, export Standard) | kept, with its namespace | kept | moved to each copy's object | kept | replaced with its own |
+| This add-on, 2.7.7-fork.15 (import, export Standard) | kept, with its namespace | kept | moved to each copy's object | kept | replaced with its own |
 | Netfabb 2021.1 | queued | queued | queued | queued | queued |
 | MiniMagics 23.5 | queued | queued | queued | queued | queued |
 | Houdini 20.5, Palace3D | queued | queued | queued | queued | queued |

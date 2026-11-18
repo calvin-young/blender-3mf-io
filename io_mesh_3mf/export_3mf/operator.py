@@ -1069,6 +1069,7 @@ class Export3MF(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
             archive = create_archive(
                 filepath, ctx.safe_report, ctx.options.compression_level,
                 preserve_imported=not ctx.options.strip_identifying_data,
+                fixed_date=ctx.options.strip_identifying_data,
             )
             if archive is None:
                 return {"CANCELLED"}

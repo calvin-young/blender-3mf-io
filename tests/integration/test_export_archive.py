@@ -331,3 +331,46 @@ class TestApplicationStamp(Blender3mfTestCase):
         model, core = self._export(use_orca_format="STANDARD", strip_identifying_data=True)
         self.assertNotIn('name="Application"', model)
         self.assertNotIn(bpy.app.version_string, core)
+
+
+class TestStripArchive(Blender3mfTestCase):
+    """Strip Names & Metadata leaves no export time or image names in the archive."""
+
+    def test_entry_dates_fixed(self):
+        bpy.ops.mesh.primitive_cube_add()
+        bpy.ops.export_mesh.threemf(filepath=str(self.temp_file), use_orca_format="STANDARD",
+                                    strip_identifying_data=True)
+        with zipfile.ZipFile(self.temp_file) as archive:
+            dates = {info.date_time for info in archive.infolist()}
+        self.assertEqual(dates, {(1980, 1, 1, 0, 0, 0)})
+
+    def test_layered_texture_names_stripped(self):
+        """Layered (multiproperties) textures used to keep their image names."""
+        image = bpy.data.images.new("secret_label_name", 8, 8)
+        image.pack()
+        bpy.ops.mesh.primitive_cube_add()
+        obj = bpy.context.object
+        material = bpy.data.materials.new("secret_material")
+        material.use_nodes = True
+        nodes, links = material.node_tree.nodes, material.node_tree.links
+        bsdf = nodes["Principled BSDF"]
+        base = nodes.new("ShaderNodeRGB")
+        base.outputs[0].default_value = (0.2, 0.4, 0.8, 1.0)
+        label = nodes.new("ShaderNodeTexImage")
+        label.image = image
+        mix = nodes.new("ShaderNodeMix")
+        mix.data_type = "RGBA"
+        mix.blend_type = "MIX"
+        links.new(base.outputs[0], mix.inputs[6])
+        links.new(label.outputs["Color"], mix.inputs[7])
+        links.new(label.outputs["Alpha"], mix.inputs[0])
+        links.new(mix.outputs[2], bsdf.inputs["Base Color"])
+        obj.data.materials.append(material)
+        bpy.ops.export_mesh.threemf(filepath=str(self.temp_file), use_orca_format="STANDARD",
+                                    strip_identifying_data=True)
+        with zipfile.ZipFile(self.temp_file) as archive:
+            everything = b"".join(archive.read(name) for name in archive.namelist())
+            names = archive.namelist()
+        self.assertNotIn(b"secret_label_name", everything)
+        self.assertFalse(any("secret" in name for name in names))
+        self.assertTrue(any(name.startswith("3D/Textures/texture_") for name in names), names)

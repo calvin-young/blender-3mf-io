@@ -22,6 +22,8 @@ Functions for creating and managing the 3MF ZIP archive:
 
 import base64
 import datetime
+import os
+import posixpath
 import xml.etree.ElementTree
 import zipfile
 from typing import Optional, Callable
@@ -36,6 +38,7 @@ from ..common.constants import (
     CORE_PROPERTIES_NAMESPACE,
     DC_NAMESPACE,
     DCTERMS_NAMESPACE,
+    MATERIAL_NAMESPACE,
     conflicting_mustpreserve_contents,
 )
 
@@ -51,6 +54,56 @@ class _ThreeMFArchive(zipfile.ZipFile):
     """
 
     annotations: Optional[Annotations] = None
+    # Strip Names & Metadata: every entry gets this date instead of the time of
+    # export, and images get generic names, recorded here as {original: new}
+    # for the model's references (see rename_texture_paths).
+    fixed_date: Optional[tuple] = None
+    texture_renames: Optional[dict] = None
+
+    def _entry(self, name):
+        """The ZipInfo (or name) to write *name* under."""
+        if isinstance(name, zipfile.ZipInfo):
+            return name
+        name = self._renamed(name)
+        if self.fixed_date is None:
+            return name
+        info = zipfile.ZipInfo(name, self.fixed_date)
+        info.compress_type = self.compression
+        info.compress_level = self.compresslevel
+        info._compresslevel = self.compresslevel  # Python before 3.13
+        info.external_attr = 0o600 << 16
+        return info
+
+    def _renamed(self, name: str) -> str:
+        if self.texture_renames is None or name.startswith("Metadata/"):
+            return name
+        if not name.lower().endswith((".png", ".jpg", ".jpeg")):
+            return name
+        if name not in self.texture_renames:
+            folder, extension = posixpath.dirname(name), posixpath.splitext(name)[1].lower()
+            new = f"texture_{len(self.texture_renames) + 1}{extension}"
+            self.texture_renames[name] = f"{folder}/{new}" if folder else new
+        return self.texture_renames[name]
+
+    def open(self, name, mode="r", pwd=None, *, force_zip64=False):
+        if mode == "w":
+            name = self._entry(name)
+        return super().open(name, mode, pwd, force_zip64=force_zip64)
+
+    def writestr(self, zinfo_or_arcname, data, compress_type=None, compresslevel=None):
+        return super().writestr(self._entry(zinfo_or_arcname), data, compress_type, compresslevel)
+
+    def write(self, filename, arcname=None, compress_type=None, compresslevel=None):
+        if self.fixed_date is None and self.texture_renames is None:
+            return super().write(filename, arcname, compress_type, compresslevel)
+        with open(filename, "rb") as f:
+            data = f.read()
+        return self.writestr(arcname or os.path.basename(filename), data, compress_type, compresslevel)
+
+    def getinfo(self, name):
+        if isinstance(name, str) and self.texture_renames is not None and name in self.texture_renames:
+            name = self.texture_renames[name]
+        return super().getinfo(name)
 
     def close(self) -> None:
         annotations, self.annotations = self.annotations, None
@@ -67,6 +120,7 @@ def create_archive(
     safe_report: Callable,
     compression_level: int = 3,
     preserve_imported: bool = True,
+    fixed_date: bool = False,
 ) -> Optional[zipfile.ZipFile]:
     """
     Creates an empty 3MF archive.
@@ -80,12 +134,15 @@ def create_archive(
     :param compression_level: ZIP deflate compression level (0=store, 9=max). Default 3.
     :param preserve_imported: Carry over the relationships, content types and
         must-preserve parts stored from previously imported 3MF files.
+    :param fixed_date: Date every entry 1980-01-01 instead of the time of export.
     :return: A zip archive that other functions can add things to.
     """
     try:
         archive = _ThreeMFArchive(
             filepath, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=compression_level
         )
+        if fixed_date:
+            archive.fixed_date = (1980, 1, 1, 0, 0, 0)
 
         # Store the file annotations we got from imported 3MF files.
         archive.annotations = Annotations()
@@ -120,6 +177,20 @@ def must_preserve(archive: zipfile.ZipFile) -> None:
         filename = filename[len(".3mf_preserved/"):]
         with archive.open(filename, "w") as f:
             f.write(contents)
+
+
+def rename_texture_paths(archive: zipfile.ZipFile, root, texture_rels: dict) -> None:
+    """Point the model's texture references at the generic names the archive gave the images."""
+    renames = getattr(archive, "texture_renames", None)
+    if not renames:
+        return
+    for texture in root.iter(f"{{{MATERIAL_NAMESPACE}}}texture2d"):
+        path = texture.get("path", "")
+        if path.lstrip("/") in renames:
+            texture.set("path", "/" + renames[path.lstrip("/")])
+    for key, path in list(texture_rels.items()):
+        if path.lstrip("/") in renames:
+            texture_rels[key] = "/" + renames[path.lstrip("/")]
 
 
 def write_core_properties(archive: zipfile.ZipFile, include_timestamps: bool = True) -> None:

@@ -38,7 +38,7 @@ from ..common.logging import debug, timing_debug, warn
 from ..common.metadata import Metadata, metadata_namespace_uri, stamp_application
 from ..common.xml import format_transformation
 
-from .archive import write_core_properties
+from .archive import rename_texture_paths, write_core_properties
 from .components import collect_mesh_objects, detect_linked_duplicates, is_export_root, should_use_components
 from .geometry import (
     write_vertices, write_triangles, write_passthrough_triangles,
@@ -467,6 +467,10 @@ class StandardExporter(BaseExporter):
         Uses core 3MF spec with optional basematerials and triangle sets.
         """
         ctx = self.ctx
+        if ctx.options.strip_identifying_data and hasattr(archive, "texture_renames"):
+            # Every image written from here on gets a generic name, whichever
+            # pipeline writes it (single, layered or carried-over textures).
+            archive.texture_renames = {}
 
         from .segmentation import clear_export_state_cache
         clear_export_state_cache()
@@ -641,6 +645,7 @@ class StandardExporter(BaseExporter):
         # Write the texture relationships once everything is written, for every
         # texture the model references: each pipeline (PBR, standard, layered,
         # passthrough) skips images another one already wrote.
+        rename_texture_paths(archive, resources_element, all_texture_rels)
         for texture in resources_element.iter(f"{{{MATERIAL_NAMESPACE}}}texture2d"):
             path = texture.get("path")
             if path and path not in all_texture_rels.values():

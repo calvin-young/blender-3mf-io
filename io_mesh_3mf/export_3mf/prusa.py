@@ -434,6 +434,8 @@ class PrusaExporter(BaseExporter):
             strip_model_xml(root)
             for index, part in enumerate(part_info_list or [], start=1):
                 part["name"] = f"Part {index}"
+            if ctx.options.slicer_profile != "NONE" or get_stashed_config("Metadata/Slic3r_PE.config") is not None:
+                ctx.safe_report({"WARNING"}, "Slicer settings are kept as they are: their printer, print and filament preset names may identify you")
 
         # Write back stashed or profile PrusaSlicer config files.
         # Slic3r_PE_model.config is always regenerated so object IDs and
