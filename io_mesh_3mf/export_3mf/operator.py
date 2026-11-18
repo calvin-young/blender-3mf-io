@@ -248,6 +248,19 @@ class EXPORT_OT_threemf_preset(AddPresetBase, bpy.types.Operator):
     ]
 
 
+def _size_mm(mesh_objects, scale: float):
+    """Width, depth and height in millimetres of the objects' bounding boxes, or None."""
+    corners = [obj.matrix_world @ mathutils.Vector(corner) for obj in mesh_objects for corner in obj.bound_box]
+    if not corners:
+        return None
+    return tuple((max(c[i] for c in corners) - min(c[i] for c in corners)) * scale for i in range(3))
+
+
+def _implausible(size) -> bool:
+    """Nothing printable is under 0.1 mm or over 10 m: the unit or the scale is wrong."""
+    return max(size) < 0.1 or max(size) > 10000
+
+
 def _safe_filename(name: str) -> str:
     """Make an object name usable as a file name, the way Blender's STL batch export does."""
     return "".join("_" if char in ' /\\:*?"<>|' or ord(char) < 32 else char for char in name)
@@ -725,6 +738,7 @@ class Export3MF(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
             sub.prop(self, "include_disabled")
             col.prop(self, "use_mesh_modifiers")
             col.prop(self, "global_scale")
+            self._draw_size(layout, context)
             self._draw_archive(layout)
             return
 
@@ -783,6 +797,7 @@ class Export3MF(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
             col.prop(self, "export_location")
             col.prop(self, "global_scale")
             col.prop(self, "coordinate_precision")
+            self._draw_size(col, context)
 
         self._draw_archive(layout)
 
@@ -877,6 +892,28 @@ class Export3MF(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
             and is_export_root(obj, exported)
             and collect_mesh_objects([obj], export_hidden=hidden, include_disabled=disabled)
         ]
+
+    def _export_size(self, context: bpy.types.Context):
+        """Width, depth and height in millimetres of what will be exported, or None."""
+        meshes = collect_mesh_objects(
+            self._candidate_objects(context),
+            export_hidden=self._include_hidden(),
+            include_disabled=self._include_disabled(),
+        )
+        return _size_mm(meshes, export_unit_scale(context, self.global_scale))
+
+    def _draw_size(self, layout, context) -> None:
+        """A line with the exported size, so a wrong unit or scale shows before exporting."""
+        size = self._export_size(context)
+        if size is None:
+            return
+        wrong = _implausible(size)
+        row = layout.row()
+        row.alert = wrong
+        text = "Size in file: " + " × ".join(f"{d:.4g}" for d in size) + " mm"
+        row.label(text=text, icon="ERROR" if wrong else "DRIVER_DISTANCE")
+        if wrong:
+            layout.label(text="Check Scale and Unit Scale", icon="BLANK1")
 
     def _batch_groups(self, context: bpy.types.Context) -> list:
         """``(object, filepath)`` for each file of a batch export."""
@@ -1075,6 +1112,13 @@ class Export3MF(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
                     warn(f"Non-manifold geometry detected in: {non_manifold_objects[0]}")
 
             global_scale = export_unit_scale(context, ctx.options.global_scale)
+            size = _size_mm(mesh_objects, global_scale)
+            if size and _implausible(size):
+                ctx.safe_report(
+                    {"WARNING"},
+                    "Exported size is " + " x ".join(f"{d:.4g}" for d in size)
+                    + " mm. Check Scale and the scene's Unit Scale",
+                )
 
             # Check if any mesh has materials assigned.
             # Must check EVALUATED objects because Geometry Nodes "Set Material"
