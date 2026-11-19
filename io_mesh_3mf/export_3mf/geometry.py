@@ -76,6 +76,27 @@ from .materials import (
 )
 
 
+# Coordinates closer to 0 than this (in mm) are written as exactly 0, never as
+# a tiny number or "-0" left by float round-off.
+ZERO_TOLERANCE = 1e-6
+# A part whose lowest point is less than this far below the floor (z = 0, in
+# mm) is round-off from resting on it, and is written resting exactly on it.
+# The floor is the only build-volume bound a part may touch.
+FLOOR_TOLERANCE = 1e-4
+
+
+def snap_to_zero(coords: np.ndarray) -> np.ndarray:
+    """*coords* with values within :data:`ZERO_TOLERANCE` of 0 (and -0.0) replaced by 0."""
+    return np.where(np.abs(coords) < ZERO_TOLERANCE, 0.0, coords)
+
+
+def written_coords(coords: np.ndarray, coordinate_precision: int) -> np.ndarray:
+    """The coordinates a reader gets back from :func:`format_vertices_xml`."""
+    fmt = f"%.{coordinate_precision}g "
+    values = snap_to_zero(coords).ravel().tolist()
+    return np.array(((fmt * len(values)) % tuple(values)).split(), dtype=np.float64).reshape(-1, 3)
+
+
 def format_vertices_xml(coords: np.ndarray, coordinate_precision: int) -> str:
     """Build the raw ``<vertices>`` XML block for an ``(n, 3)`` coordinate array.
 
@@ -90,7 +111,7 @@ def format_vertices_xml(coords: np.ndarray, coordinate_precision: int) -> str:
     """
     fmt = f"%.{coordinate_precision}g"
     template = f'<vertex x="{fmt}" y="{fmt}" z="{fmt}"/>'
-    values = tuple(coords.ravel().tolist())
+    values = tuple(snap_to_zero(coords).ravel().tolist())
     return f"<vertices>{(template * len(coords)) % values}</vertices>"
 
 

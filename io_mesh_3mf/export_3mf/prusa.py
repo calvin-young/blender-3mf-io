@@ -31,7 +31,7 @@ from ..common.logging import debug, warn
 from ..common.metadata import Metadata, MetadataEntry, stamp_application
 
 from .archive import write_core_properties
-from .geometry import write_metadata
+from .geometry import FLOOR_TOLERANCE, ZERO_TOLERANCE, write_metadata
 from .materials import collect_face_colors, write_prusa_filament_colors
 from .materials.base import material_to_hex_color
 from .components import collect_mesh_objects
@@ -199,12 +199,14 @@ class PrusaExporter(BaseExporter):
             scale_matrix = mathutils.Matrix.Scale(global_scale, 4)
             transform = scale_matrix @ world_matrix
 
-            for v in mesh.vertices:
-                co = transform @ v.co
-                combined_vertices.append((
-                    round(co.x, prec),
-                    round(co.y, prec),
-                    round(co.z, prec),
+            world = [transform @ v.co for v in mesh.vertices]
+            # A part resting on the floor up to round-off rests exactly on it.
+            lowest = min((co.z for co in world), default=0.0)
+            lift = -lowest if -FLOOR_TOLERANCE <= lowest < 0 else 0.0
+            for co in world:
+                combined_vertices.append(tuple(
+                    0.0 if abs(value) < ZERO_TOLERANCE else round(value, prec)
+                    for value in (co.x, co.y, co.z + lift)
                 ))
 
             # Add triangles with cumulative vertex offset; carry segmentation.

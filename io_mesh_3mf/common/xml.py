@@ -77,7 +77,8 @@ def format_transformation(transformation: mathutils.Matrix) -> str:
     """
     import itertools
     pieces = (row[:3] for row in transformation.transposed())
-    formatted_cells = [f"{cell:.9f}" for cell in itertools.chain.from_iterable(pieces)]
+    # Cells that round to zero are written as 0, never as "-0.000000000".
+    formatted_cells = [f"{0.0 if abs(cell) < 5e-10 else cell:.9f}" for cell in itertools.chain.from_iterable(pieces)]
     return " ".join(formatted_cells)
 
 

@@ -22,6 +22,7 @@ when the user does not select Orca or PrusaSlicer paint-segmentation output.
 from __future__ import annotations
 
 import collections
+import math
 import os
 import re
 import time
@@ -31,6 +32,7 @@ from typing import List, Set, Tuple, TYPE_CHECKING
 
 import bpy
 import mathutils
+import numpy as np
 
 from ..common.constants import BLENDER_NAMESPACE, BLENDER_PREFIX, MATERIAL_NAMESPACE, MODEL_NAMESPACE, MODEL_LOCATION
 from ..common.extensions import TRIANGLE_SETS_EXTENSION, MATERIALS_EXTENSION
@@ -43,6 +45,7 @@ from .components import collect_mesh_objects, detect_linked_duplicates, is_expor
 from .geometry import (
     write_vertices, write_triangles, write_passthrough_triangles,
     write_metadata, get_raw_geometry, clear_raw_geometry, group_metadata_names,
+    FLOOR_TOLERANCE, written_coords,
 )
 from .materials import (
     write_materials,
@@ -302,7 +305,7 @@ class BaseExporter:
         self.ctx = ctx
         self._parts = set()  # Objects written as build items (the "parts"); see part_name()
         self._one_part = False  # Grouping several objects into one part
-        self._one_part_members = []  # (object ID, transformation) when grouping into one part
+        self._one_part_members = []  # (object ID, transform attribute) when grouping into one part
         self._scale = 1.0  # Unit and export scale, applied to vertices (see write_objects)
 
     def part_name(self, blender_object: bpy.types.Object) -> str:
@@ -822,7 +825,7 @@ class StandardExporter(BaseExporter):
                     self._write_build_item(
                         build_element, child_id,
                         transformation @ self._scaled(child_obj.matrix_world),
-                        child_obj,
+                        child_obj, with_children=False,
                     )
                 continue
 
@@ -880,11 +883,11 @@ class StandardExporter(BaseExporter):
         part_element.attrib[self.attr("id")] = str(part_id)
         part_element.attrib[self.attr("name")] = name
         components_element = xml.etree.ElementTree.SubElement(part_element, f"{{{MODEL_NAMESPACE}}}components")
-        for objectid, transformation in self._one_part_members:
+        for objectid, transform_text in self._one_part_members:
             component = xml.etree.ElementTree.SubElement(components_element, f"{{{MODEL_NAMESPACE}}}component")
             component.attrib[self.attr("objectid")] = str(objectid)
-            if transformation != mathutils.Matrix.Identity(4):
-                component.attrib[self.attr("transform")] = format_transformation(transformation)
+            if transform_text:
+                component.attrib[self.attr("transform")] = transform_text
         item_element = xml.etree.ElementTree.SubElement(build_element, f"{{{MODEL_NAMESPACE}}}item")
         item_element.attrib[self.attr("objectid")] = str(part_id)
         ctx.num_written += 1
@@ -942,17 +945,86 @@ class StandardExporter(BaseExporter):
         scaled.translation = matrix.translation * self._scale
         return scaled
 
+    def _transform_text(
+        self,
+        transformation: mathutils.Matrix,
+        blender_object: bpy.types.Object,
+        with_children: bool,
+    ) -> str:
+        """A build item's transform attribute, or "" for none.
+
+        A part that rests on the floor up to round-off is raised to rest exactly
+        on it: the floor is the only build-volume bound a part may touch. The
+        lowest point is computed from the numbers as written, so a reader never
+        finds it below z = 0, and the new height is written in double precision
+        (mathutils matrices are single precision). Parts clearly above or below
+        the floor are unchanged.
+        """
+        text = format_transformation(transformation)
+        cells = np.array(text.split(), dtype=np.float64)
+        lowest = self._lowest_written_z(cells, blender_object, with_children)
+        if -FLOOR_TOLERANCE <= lowest < 0:
+            # Round the new height up to the 9 decimals written.
+            height = math.ceil((cells[11] - lowest) * 1e9) / 1e9
+            text = " ".join(text.split()[:11] + [f"{height:.9f}"])
+        elif transformation == mathutils.Matrix.Identity(4):
+            return ""
+        return text
+
+    def _lowest_written_z(
+        self,
+        cells: np.ndarray,
+        blender_object: bpy.types.Object,
+        with_children: bool,
+    ) -> float:
+        """The lowest z of a build item's meshes, as a reader computes it from the item's transform *cells*."""
+        ctx = self.ctx
+        item = cells.reshape(4, 3)  # Rows: x, y and z axes, then translation.
+        objects = [blender_object]
+        if with_children and not ctx.options.single_object:
+            objects += [child for child in blender_object.children_recursive if not _is_object_excluded(child, ctx)]
+        inverse = blender_object.matrix_world.inverted_safe()
+        lowest = math.inf
+        for obj in objects:
+            if obj.type != "MESH":
+                continue
+            if obj is blender_object:
+                z_axis, z_offset = item[:3, 2], item[3, 2]
+            else:
+                relative = np.array(self._scaled(inverse @ obj.matrix_world))
+                z_axis = relative[:3, :3].T @ item[:3, 2]
+                z_offset = relative[:3, 3] @ item[:3, 2] + item[3, 2]
+            # The bounding box is a cheap lower bound: most parts are clearly above the floor.
+            corners = np.array(obj.bound_box) * self._scale
+            if (corners @ z_axis).min() + z_offset > 0:
+                continue
+            if ctx.options.use_mesh_modifiers:
+                obj = obj.evaluated_get(bpy.context.evaluated_depsgraph_get())
+            mesh = obj.to_mesh()
+            try:
+                coords = np.empty(len(mesh.vertices) * 3, dtype=np.float64)
+                mesh.vertices.foreach_get("co", coords)
+            finally:
+                obj.to_mesh_clear()
+            if not len(coords):
+                continue
+            coords = written_coords(coords.reshape(-1, 3) * self._scale, ctx.options.coordinate_precision)
+            lowest = min(lowest, float((coords @ z_axis).min() + z_offset))
+        return lowest
+
     def _write_build_item(
         self,
         build_element: xml.etree.ElementTree.Element,
         objectid: int,
         mesh_transformation: mathutils.Matrix,
         blender_object: bpy.types.Object,
+        with_children: bool = True,
     ) -> None:
         """Write a single ``<item>`` inside the ``<build>`` element."""
         ctx = self.ctx
+        transform_text = self._transform_text(mesh_transformation, blender_object, with_children)
         if self._one_part:
-            self._one_part_members.append((objectid, mesh_transformation))
+            self._one_part_members.append((objectid, transform_text))
             return
         item_element = xml.etree.ElementTree.SubElement(
             build_element, f"{{{MODEL_NAMESPACE}}}item"
@@ -960,10 +1032,8 @@ class StandardExporter(BaseExporter):
         ctx.num_written += 1
         item_element.attrib[self.attr("objectid")] = str(objectid)
 
-        if mesh_transformation != mathutils.Matrix.Identity(4):
-            item_element.attrib[self.attr("transform")] = format_transformation(
-                mesh_transformation
-            )
+        if transform_text:
+            item_element.attrib[self.attr("transform")] = transform_text
 
         # The object's custom metadata goes on its <object> only (see
         # write_object_resource and _write_component_instance): the object is
