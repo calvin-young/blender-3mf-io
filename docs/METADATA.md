@@ -11,7 +11,7 @@ travel inside it:
 1. **Part file:** one part per 3MF, carrying its generation parameters, readable again in Blender.
 2. **Build file (bucket):** several part files arranged into one build, for the printer and for the archive. It
    should carry each part's parameters (no lookup needed later), plus metadata about the build itself: the printer it
-   was arranged for, the packing settings, the tool and version that packed it, and optionally the operator.
+   was arranged for, the packing settings, the tool and version that packed it, and when it was packed.
 3. **Hybrid workflows:** parts made in Blender may be packed in another program (Magics, Netfabb), and builds made
    elsewhere may be opened in Blender. Losing metadata in another program is acceptable; losing it silently in
    Blender is not.
@@ -53,7 +53,8 @@ rule.
 
 Why one JSON entry and not one entry per parameter: the parameters belong to the generator and change with it.
 One entry keeps them together, versioned by the generator (put a `"generator": "name version"` key inside), and
-keeps the 3MF namespace stable while the parameter set evolves.
+keeps the 3MF namespace stable while the parameter set evolves. Put the generation time inside too
+(`"generated": "2026-11-18T14:05:00Z"`, UTC, ISO 8601): it travels with the part into every build.
 
 Why the generator's namespace: whoever defines the keys owns the namespace. This add-on carries any namespace
 through import and export (**built**), so it doesn't need to know each generator's keys.
@@ -70,11 +71,16 @@ metadatagroup, so they can be matched up again.
 | `bb:packing` | the packer settings that produced the layout, as JSON (method, clearance, rotations, seed) |
 | `bb:tool` | `Bucket Builder 1.x.y` (the packing tool; `Application` names the 3MF writer) |
 | `bb:checks` | result of the last collision and bounds check, with its clearance |
-| `bb:operator` | only if the user opts in, off by default (personal data) |
+| `bb:packed` | when the build was packed, UTC, ISO 8601 (`2026-11-18T14:05:00Z`) |
 
 with `xmlns:bb="urn:bucket-builder"` (proposed; Bucket Builder's to decide). Bucket Builder sets them before
 calling the exporter, through `io_mesh_3mf.api.metadata.set_metadata(scene, "bb:printer", {...},
 namespace="urn:bucket-builder")`. Noted for Bucket Builder's export wiring (its issue #9).
+
+**No operator field** (Calvin's decision, 2026-11-18): who packed a build can be found from when it was packed,
+through the site's own records, so the file doesn't need to carry personal data. That makes the generation and packing
+times required, not optional. They are separate from the export time in `docProps/core.xml`, which says when the file
+was written, not when the part or layout was made, and which another program re-saving the file replaces.
 
 **Per-copy data (serial numbers, label text)** goes on each copy's Blender object, like any other metadata: the
 exporter gives every copy its own object in the file. Bucket Builder's labeled copies are the case for it.
@@ -112,8 +118,9 @@ exporter gives every copy its own object in the file. Bucket Builder's labeled c
 
 ## Privacy
 
-Generator parameters often name input files (a scan file name can identify a person), and an operator field is
-personal data. Strip Names & Metadata removes every custom entry today. The finer options are in
+Generator parameters often name input files (a scan file name can identify a person). Generation and packing
+times are a link to whoever made the part or build. Strip Names & Metadata removes every custom entry today,
+times included, along with the export time. The finer options are in
 [PRIVACY.md](PRIVACY.md).
 
 ## Open questions
