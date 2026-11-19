@@ -41,6 +41,7 @@ def clear_export_state_cache() -> None:
     """Discard cached state maps from the previous export run."""
     _state_map_cache.clear()
 
+
 # Maximum iterations for adaptive mesh pre-subdivision
 _MAX_SUBDIV_ITERATIONS = 6
 
@@ -384,10 +385,10 @@ def texture_to_segmentation(
     _uv1s = all_uvs[tri_loops[:, 1]]
     _uv2s = all_uvs[tri_loops[:, 2]]
     _ps = np.maximum(
-        (np.maximum(np.maximum(_uv0s[:, 0], _uv1s[:, 0]), _uv2s[:, 0]) -
-         np.minimum(np.minimum(_uv0s[:, 0], _uv1s[:, 0]), _uv2s[:, 0])) * (width - 1),
-        (np.maximum(np.maximum(_uv0s[:, 1], _uv1s[:, 1]), _uv2s[:, 1]) -
-         np.minimum(np.minimum(_uv0s[:, 1], _uv1s[:, 1]), _uv2s[:, 1])) * (height - 1),
+        (np.maximum(np.maximum(_uv0s[:, 0], _uv1s[:, 0]), _uv2s[:, 0])
+         - np.minimum(np.minimum(_uv0s[:, 0], _uv1s[:, 0]), _uv2s[:, 0])) * (width - 1),
+        (np.maximum(np.maximum(_uv0s[:, 1], _uv1s[:, 1]), _uv2s[:, 1])
+         - np.minimum(np.minimum(_uv0s[:, 1], _uv1s[:, 1]), _uv2s[:, 1])) * (height - 1),
     )
     tri_depths = np.where(
         _ps < 1.0,

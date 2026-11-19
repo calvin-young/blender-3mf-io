@@ -66,7 +66,7 @@ class TestCustomMetadata(Blender3mfTestCase):
         bpy.ops.mesh.primitive_cube_add()
         set_metadata(bpy.context.object, "gen:parameters", {"a": 1}, namespace=NS)
         result = bpy.ops.export_mesh.threemf(filepath=str(self.temp_file), use_orca_format="STANDARD",
-                                            strip_identifying_data=True)
+                                             strip_identifying_data=True)
         self.assertIn("FINISHED", result)
         self.assertNotIn("gen:parameters", self._model_xml())
 
@@ -87,7 +87,7 @@ class TestMetadataOnParts(Blender3mfTestCase):
         bpy.ops.mesh.primitive_cube_add(location=(0, 9, 0))
         set_metadata(bpy.context.object, "gen:parameters", {"t": 2})
         result = bpy.ops.export_mesh.threemf(filepath=str(self.temp_file), use_orca_format="STANDARD",
-                                            export_location="KEEP")
+                                             export_location="KEEP")
         self.assertIn("FINISHED", result)
         with zipfile.ZipFile(self.temp_file) as archive:
             xml = archive.read("3D/3dmodel.model").decode("utf-8")

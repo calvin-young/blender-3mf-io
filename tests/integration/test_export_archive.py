@@ -385,7 +385,7 @@ class TestOrcaApplicationStamp(Blender3mfTestCase):
         material.diffuse_color = (1, 0, 0, 1)
         bpy.context.object.data.materials.append(material)
         result = bpy.ops.export_mesh.threemf(filepath=str(self.temp_file), use_orca_format="PAINT",
-                                            mmu_slicer_format="ORCA", **kwargs)
+                                             mmu_slicer_format="ORCA", **kwargs)
         self.assertIn("FINISHED", result)
         with zipfile.ZipFile(self.temp_file) as archive:
             return archive.read("3D/3dmodel.model").decode("utf-8")

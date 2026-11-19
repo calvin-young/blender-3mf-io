@@ -40,7 +40,13 @@ import bpy
 import numpy as np
 
 from ..common import debug, warn
-from ..common.constants import BLENDER_NAMESPACE, MATERIAL_NAMESPACE, MODEL_NAMESPACE, TEXTURE_MIMETYPE_PNG, TEXTURE_MIMETYPE_JPEG
+from ..common.constants import (
+    BLENDER_NAMESPACE,
+    MATERIAL_NAMESPACE,
+    MODEL_NAMESPACE,
+    TEXTURE_MIMETYPE_PNG,
+    TEXTURE_MIMETYPE_JPEG,
+)
 
 __all__ = [
     "find_layers",

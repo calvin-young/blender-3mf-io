@@ -116,6 +116,8 @@ def is_export_root(obj: bpy.types.Object, exported: set) -> bool:
             return False
         parent = parent.parent
     return True
+
+
 def _looks_different_from_mesh(obj: bpy.types.Object, apply_modifiers: bool) -> bool:
     """Whether an object's exported result depends on more than its mesh data."""
     if apply_modifiers and any(modifier.show_viewport for modifier in obj.modifiers):

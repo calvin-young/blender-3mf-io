@@ -149,7 +149,8 @@ class Import3MF(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
     )
     reuse_images: bpy.props.BoolProperty(
         name="Reuse Existing Images",
-        description="Reuse an image of the same name (or a numbered copy) when its file contents are identical, instead of adding another copy",
+        description="Reuse an image of the same name (or a numbered copy) when its file contents are identical, "
+                    "instead of adding another copy",
         default=True,
     )
     object_names: bpy.props.EnumProperty(

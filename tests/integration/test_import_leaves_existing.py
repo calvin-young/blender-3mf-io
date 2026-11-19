@@ -64,8 +64,9 @@ def snapshot():
                           if hasattr(i, "default_value")]
                 nodes.append((node.name, node.type, inputs,
                               getattr(getattr(node, "image", None), "name", None)))
-            links = sorted((l.from_node.name, l.from_socket.identifier, l.to_node.name, l.to_socket.identifier)
-                           for l in material.node_tree.links)
+            links = sorted((link.from_node.name, link.from_socket.identifier,
+                            link.to_node.name, link.to_socket.identifier)
+                           for link in material.node_tree.links)
         else:
             links = []
         state["materials"][material.as_pointer()] = (

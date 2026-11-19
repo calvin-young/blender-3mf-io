@@ -27,6 +27,8 @@ class ExportMetadataPrefixTests(Blender3mfTestCase):
         self.assertIn(b'name="slicer:Version"', model)
         self.assertIn(b"xmlns:slicer=", model)
         ET.fromstring(model)
+
+
 class ExportStaleGeometryTests(Blender3mfTestCase):
     """Geometry left by an export that stopped doesn't reach the next one."""
 

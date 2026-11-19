@@ -183,7 +183,7 @@ class TestUnitScaleInVertices(Blender3mfTestCase):
         units.length_unit = length_unit
         bpy.ops.mesh.primitive_cube_add(size=20, location=(100, 50, 10))
         result = bpy.ops.export_mesh.threemf(filepath=str(self.temp_file), use_orca_format="STANDARD",
-                                            export_location="KEEP", global_scale=global_scale)
+                                             export_location="KEEP", global_scale=global_scale)
         self.assertIn("FINISHED", result)
         with zipfile.ZipFile(self.temp_file) as archive:
             model = archive.read("3D/3dmodel.model").decode()

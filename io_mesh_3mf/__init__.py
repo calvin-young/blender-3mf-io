@@ -312,7 +312,8 @@ class ThreeMFPreferences(bpy.types.AddonPreferences):
     )
     default_reuse_images: bpy.props.BoolProperty(
         name="Reuse Existing Images",
-        description="Reuse an image of the same name (or a numbered copy) when its file contents are identical, instead of adding another copy",
+        description="Reuse an image of the same name (or a numbered copy) when its file contents are identical, "
+                    "instead of adding another copy",
         default=True,
     )
 

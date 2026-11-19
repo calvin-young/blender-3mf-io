@@ -200,7 +200,6 @@ class TestLayeredTextureImport(LayeredTexturesTestCase):
                        for i in polygon.loop_indices)
         self.assertEqual(label, [(0.25, 0.25), (0.25, 0.75), (0.75, 0.75)])
 
-
     def test_roundtrip_keeps_material_name(self):
         self.layered_materials(self.obj)[0].name = "Label over base"
         root, _ = self.export_model()
