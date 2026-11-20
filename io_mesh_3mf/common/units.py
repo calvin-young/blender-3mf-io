@@ -22,6 +22,7 @@ from .constants import MODEL_DEFAULT_UNIT
 __all__ = [
     "blender_to_metre",
     "threemf_to_metre",
+    "blender_unit_to_metre_scale",
     "import_unit_scale",
     "export_unit_scale",
 ]
@@ -57,6 +58,30 @@ threemf_to_metre: Dict[str, float] = {
 }
 
 
+def unitless_is_millimetres(context: bpy.types.Context) -> bool:
+    """Whether a scene with Unit System None counts 1 unit as 1 mm (the preference; on by default)."""
+    addon = context.preferences.addons.get(__package__.rsplit(".", 1)[0])
+    preferences = addon.preferences if addon else None
+    return getattr(preferences, "unitless_millimeters", True)
+
+
+def blender_unit_to_metre_scale(context: bpy.types.Context) -> float:
+    """The length of one Blender unit in metres, for the scene's unit settings.
+
+    With Unit System None, Blender has no unit, and 3D printing programs read
+    its numbers as millimetres: 1 unit is 1 mm (times Unit Scale), unless the
+    "Unitless Scenes in Millimeters" preference is off, which reads it as 1 m
+    like Blender's metric default.
+    """
+    units = context.scene.unit_settings
+    blender_unit_to_metre = units.scale_length
+    if blender_unit_to_metre == 0:  # Fallback for special cases.
+        blender_unit_to_metre = blender_to_metre[units.length_unit]
+    if units.system == "NONE" and unitless_is_millimetres(context):
+        blender_unit_to_metre *= 0.001
+    return blender_unit_to_metre
+
+
 def import_unit_scale(
     context: bpy.types.Context,
     root,
@@ -71,10 +96,7 @@ def import_unit_scale(
     """
     scale = global_scale
 
-    blender_unit_to_metre = context.scene.unit_settings.scale_length
-    if blender_unit_to_metre == 0:  # Fallback for special cases.
-        blender_unit = context.scene.unit_settings.length_unit
-        blender_unit_to_metre = blender_to_metre[blender_unit]
+    blender_unit_to_metre = blender_unit_to_metre_scale(context)
 
     threemf_unit = root.attrib.get("unit", MODEL_DEFAULT_UNIT)
     threemf_unit_to_metre = threemf_to_metre[threemf_unit]
@@ -92,10 +114,7 @@ def export_unit_scale(context: bpy.types.Context, global_scale: float = 1.0) -> 
     """
     scale = global_scale
 
-    blender_unit_to_metre = context.scene.unit_settings.scale_length
-    if blender_unit_to_metre == 0:
-        blender_unit = context.scene.unit_settings.length_unit
-        blender_unit_to_metre = blender_to_metre[blender_unit]
+    blender_unit_to_metre = blender_unit_to_metre_scale(context)
 
     threemf_unit_to_metre = threemf_to_metre[MODEL_DEFAULT_UNIT]  # Always export as mm
 

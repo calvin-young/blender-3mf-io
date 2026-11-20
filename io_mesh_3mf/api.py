@@ -80,6 +80,7 @@ from .common.logging import debug, error, warn
 from .common.metadata import Metadata, MetadataEntry, declare_metadata_namespace
 from .common.units import (
     blender_to_metre,
+    blender_unit_to_metre_scale,
     export_unit_scale,
     threemf_to_metre,
 )
@@ -1575,10 +1576,7 @@ def _import_unit_scale(
     from .common.constants import MODEL_DEFAULT_UNIT
 
     scale = global_scale
-    blender_unit_to_metre = context.scene.unit_settings.scale_length
-    if blender_unit_to_metre == 0:
-        blender_unit = context.scene.unit_settings.length_unit
-        blender_unit_to_metre = blender_to_metre[blender_unit]
+    blender_unit_to_metre = blender_unit_to_metre_scale(context)
 
     threemf_unit = root.attrib.get("unit", MODEL_DEFAULT_UNIT)
     threemf_unit_to_metre = threemf_to_metre[threemf_unit]

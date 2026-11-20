@@ -43,7 +43,7 @@ from ..common.constants import (
 from ..common.extensions import get_extension_by_namespace
 from ..common.metadata import Metadata, MetadataEntry, declare_metadata_namespace
 from ..common.annotations import Annotations
-from ..common.units import blender_to_metre, threemf_to_metre
+from ..common.units import blender_unit_to_metre_scale, threemf_to_metre
 from .context import ImportContext, ImportOptions
 from . import archive as archive_mod
 from . import geometry as geometry_mod
@@ -884,10 +884,7 @@ class Import3MF(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
 
         scale = self.global_scale
 
-        blender_unit_to_metre = context.scene.unit_settings.scale_length
-        if blender_unit_to_metre == 0:
-            blender_unit = context.scene.unit_settings.length_unit
-            blender_unit_to_metre = blender_to_metre[blender_unit]
+        blender_unit_to_metre = blender_unit_to_metre_scale(context)
 
         threemf_unit = root.attrib.get("unit", MODEL_DEFAULT_UNIT)
         threemf_unit_to_metre = threemf_to_metre[threemf_unit]

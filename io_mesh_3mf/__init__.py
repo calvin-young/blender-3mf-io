@@ -212,7 +212,7 @@ class ThreeMFPreferences(bpy.types.AddonPreferences):
     default_use_selection: bpy.props.BoolProperty(
         name="Selection Only",
         description="Export selected objects only",
-        default=False,
+        default=True,
     )
 
     default_export_hidden: bpy.props.BoolProperty(
@@ -271,6 +271,13 @@ class ThreeMFPreferences(bpy.types.AddonPreferences):
         min=1e-6,
         max=1e6,
         precision=4,
+    )
+
+    unitless_millimeters: bpy.props.BoolProperty(
+        name="Unitless Scenes in Millimeters",
+        description="With the scene's Unit System set to None, 1 Blender unit is 1 mm on import and export, "
+                    "as 3D printing programs read it. Off: 1 unit is 1 m, Blender's metric default",
+        default=True,
     )
 
     default_import_global_scale: bpy.props.FloatProperty(
@@ -378,7 +385,7 @@ class ThreeMFPreferences(bpy.types.AddonPreferences):
             ("AUTO", "Smooth by Angle",
              "Add a Smooth by Angle modifier: smooth, except for edges sharper than the angle"),
         ],
-        default="SMOOTH",
+        default="FLAT",
     )
 
     default_auto_smooth_angle: bpy.props.FloatProperty(
@@ -605,6 +612,7 @@ class ThreeMFPreferences(bpy.types.AddonPreferences):
             col.separator()
             col.prop(self, "default_export_location", text="Location")
             col.prop(self, "default_global_scale", text="Scale")
+            col.prop(self, "unitless_millimeters")
             col.prop(self, "default_coordinate_precision", text="Precision")
 
         # --- Archive ---
@@ -627,6 +635,7 @@ class ThreeMFPreferences(bpy.types.AddonPreferences):
         """Mirror the layout of ``Import3MF.draw()``."""
         layout.prop(self, "default_scene_unit")
         layout.prop(self, "default_import_global_scale", text="Scale Multiplier")
+        layout.prop(self, "unitless_millimeters")
         layout.separator()
 
         box = layout.box()

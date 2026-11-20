@@ -210,3 +210,49 @@ class TestUnitScaleInVertices(Blender3mfTestCase):
         width, transform = self._export(0.001, "MILLIMETERS", global_scale=0.001)
         self.assertAlmostEqual(width, 0.02, places=6)
         self.assertEqual(transform[:9], [1, 0, 0, 0, 1, 0, 0, 0, 1])
+
+
+class TestUnitlessScene(Blender3mfTestCase):
+    """Unit System None: 1 Blender unit is 1 mm both ways, unless the preference says metres."""
+
+    def setUp(self):
+        super().setUp()
+        units = bpy.context.scene.unit_settings
+        units.system = "NONE"
+        units.scale_length = 1.0
+
+    def _export(self):
+        import re
+        bpy.ops.mesh.primitive_cube_add(size=20, location=(100, 50, 10))
+        result = bpy.ops.export_mesh.threemf(filepath=str(self.temp_file), use_orca_format="STANDARD",
+                                             export_location="KEEP")
+        self.assertIn("FINISHED", result)
+        with zipfile.ZipFile(self.temp_file) as archive:
+            model = archive.read("3D/3dmodel.model").decode()
+        xs = [float(x) for x in re.findall(r'<vertex x="([^"]+)"', model)]
+        transform = [float(v) for v in re.search(r'<item [^>]*transform="([^"]+)"', model).group(1).split()]
+        return max(xs) - min(xs), transform
+
+    def test_export_one_unit_is_one_millimetre(self):
+        width, transform = self._export()
+        self.assertEqual(width, 20.0)
+        self.assertEqual(transform, [1, 0, 0, 0, 1, 0, 0, 0, 1, 100, 50, 10])
+
+    def test_import_one_millimetre_is_one_unit(self):
+        """A millimetre file imports at its size in units, with no scale on the objects."""
+        self._export()
+        bpy.ops.object.select_all(action="SELECT")
+        bpy.ops.object.delete()
+        bpy.ops.import_mesh.threemf(filepath=str(self.temp_file))
+        obj = bpy.context.scene.objects[0]
+        self.assertEqual(tuple(obj.scale), (1.0, 1.0, 1.0))
+        self.assertAlmostEqual(obj.dimensions.x, 20.0, places=4)
+        self.assertAlmostEqual(obj.location.x, 100.0, places=4)
+
+    def test_preference_off_reads_metres(self):
+        """With the preference off, 1 unit is 1 m, as in upstream."""
+        from unittest import mock
+        with mock.patch("io_mesh_3mf.common.units.unitless_is_millimetres", return_value=False):
+            width, transform = self._export()
+        self.assertEqual(width, 20000.0)
+        self.assertEqual(transform[9:], [100000, 50000, 10000])
