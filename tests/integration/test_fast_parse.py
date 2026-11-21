@@ -137,6 +137,9 @@ class TestFastParse(FastParseTestCase):
         fast_parse._worker_count = lambda: 3
         try:
             self.assert_same_as_element_by_element(self.write(grid_model(size=30, magics_style=True)))
+            # Blender's extension policy: no top-level module left behind.
+            import sys
+            self.assertNotIn("threemf_fast_convert", sys.modules)
         finally:
             fast_parse._PARALLEL_THRESHOLD, fast_parse._PIECE_SIZE, fast_parse._worker_count = saved
 

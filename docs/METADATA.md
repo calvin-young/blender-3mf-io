@@ -77,7 +77,7 @@ with `xmlns:bb="urn:bucket-builder"` (proposed; Bucket Builder's to decide). Buc
 calling the exporter, through `io_mesh_3mf.api.metadata.set_metadata(scene, "bb:printer", {...},
 namespace="urn:bucket-builder")`. Noted for Bucket Builder's export wiring (its issue #9).
 
-**No operator field** (Calvin's decision, 2026-11-18): who packed a build can be found from when it was packed,
+**No operator field:** who packed a build can be found from when it was packed,
 through the site's own records, so the file doesn't need to carry personal data. That makes the generation and packing
 times required, not optional. They are separate from the export time in `docProps/core.xml`, which says when the file
 was written, not when the part or layout was made, and which another program re-saving the file replaces.

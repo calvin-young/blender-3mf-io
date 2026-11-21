@@ -43,7 +43,9 @@ from ..common.constants import (
 from ..common.extensions import get_extension_by_namespace
 from ..common.metadata import Metadata, MetadataEntry, declare_metadata_namespace
 from ..common.annotations import Annotations
-from ..common.units import blender_unit_to_metre_scale, threemf_to_metre
+from ..common.size import draw_size, format_length, size_problem
+from ..common.units import blender_unit_to_metre_scale, export_unit_scale, threemf_to_metre
+from .preview import build_size
 from .context import ImportContext, ImportOptions
 from . import archive as archive_mod
 from . import geometry as geometry_mod
@@ -277,6 +279,8 @@ class Import3MF(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
 
         layout.prop(self, "scene_unit")
         layout.prop(self, "global_scale")
+        if file_count == 1:
+            self._draw_size(layout, context)
         layout.separator()
 
         box = layout.box()
@@ -575,6 +579,7 @@ class Import3MF(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
 
         debug(f"Imported {ctx.num_loaded} objects from 3MF files.")
         self.safe_report({"INFO"}, f"Imported {ctx.num_loaded} objects from 3MF files")
+        self._report_size(context, ctx)
 
         # Show paint popup if needed.
         self._show_paint_popup(ctx)
@@ -859,6 +864,44 @@ class Import3MF(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
         return extensions <= SUPPORTED_EXTENSIONS
 
     # ----- Unit scale -------------------------------------------------------
+
+    def _report_size(self, context: bpy.types.Context, ctx: ImportContext) -> None:
+        """Warn when what was imported is too small or too large to be a printable part."""
+        import mathutils
+        corners = [
+            obj.matrix_world @ mathutils.Vector(corner)
+            for obj in ctx.imported_objects if obj.type == "MESH" for corner in obj.bound_box
+        ]
+        if not corners:
+            return
+        to_mm = export_unit_scale(context)
+        size = [(max(c[i] for c in corners) - min(c[i] for c in corners)) * to_mm for i in range(3)]
+        problem = size_problem(size)
+        if problem:
+            self.safe_report(
+                {"WARNING"},
+                f"{problem} after import ({' x '.join(format_length(d) for d in size)}): "
+                "check the file's unit, Scale and the scene's Unit Scale",
+            )
+
+    def _draw_size(self, layout, context: bpy.types.Context) -> None:
+        """The size of the selected file's build, and the scale its objects will get in this scene."""
+        found = build_size(self.filepath) if self.filepath.lower().endswith(".3mf") else None
+        if found is None:
+            return
+        size, unit = found
+        draw_size(layout, "Size in file", size, "the file's unit is wrong")
+        if self.scene_unit == "KEEP":
+            unit_m = blender_unit_to_metre_scale(context)
+        else:
+            unit_m = 1.0  # The scene unit is set with Unit Scale 1.
+        scale = threemf_to_metre[unit] / unit_m * self.global_scale
+        row = layout.row()
+        if abs(scale - 1) < 1e-6:
+            row.label(text=f"1 unit = {format_length(unit_m * 1000)}: imported at scale 1", icon="BLANK1")
+        else:
+            row.alert = True
+            row.label(text=f"1 unit = {format_length(unit_m * 1000)}: objects get scale {scale:.4g}", icon="BLANK1")
 
     def _apply_scene_unit(
         self, context: bpy.types.Context, root: xml.etree.ElementTree.Element

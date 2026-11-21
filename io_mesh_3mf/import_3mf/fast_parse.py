@@ -298,7 +298,8 @@ def _convert_in_workers(
     directory = os.path.dirname(os.path.abspath(__file__))
     name = "threemf_fast_convert"
     module = sys.modules.get(name)
-    if module is None:
+    added = module is None
+    if added:
         spec = importlib.util.spec_from_file_location(name, os.path.join(directory, name + ".py"))
         module = importlib.util.module_from_spec(spec)
         sys.modules[name] = module
@@ -327,6 +328,10 @@ def _convert_in_workers(
     finally:
         sys.modules["__main__"] = main_module
         sys.path.remove(directory)
+        # Blender's extension policy doesn't allow an add-on to leave a
+        # top-level module behind; the workers needed it only by name.
+        if added:
+            del sys.modules[name]
 
 
 def fast_array(ctx: "ImportContext", element: Optional[xml.etree.ElementTree.Element]) -> Optional[np.ndarray]:

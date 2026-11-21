@@ -31,6 +31,7 @@ from bl_operators.presets import AddPresetBase
 
 from ..common.extensions import ExtensionManager
 from ..common.logging import debug, warn, error
+from ..common.size import draw_size, format_length, size_problem
 from ..common.units import export_unit_scale
 
 from .archive import create_archive
@@ -254,11 +255,6 @@ def _size_mm(mesh_objects, scale: float):
     if not corners:
         return None
     return tuple((max(c[i] for c in corners) - min(c[i] for c in corners)) * scale for i in range(3))
-
-
-def _implausible(size) -> bool:
-    """Nothing printable is under 0.1 mm or over 10 m: the unit or the scale is wrong."""
-    return max(size) < 0.1 or max(size) > 10000
 
 
 def _safe_filename(name: str) -> str:
@@ -905,15 +901,8 @@ class Export3MF(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
     def _draw_size(self, layout, context) -> None:
         """A line with the exported size, so a wrong unit or scale shows before exporting."""
         size = self._export_size(context)
-        if size is None:
-            return
-        wrong = _implausible(size)
-        row = layout.row()
-        row.alert = wrong
-        text = "Size in file: " + " × ".join(f"{d:.4g}" for d in size) + " mm"
-        row.label(text=text, icon="ERROR" if wrong else "DRIVER_DISTANCE")
-        if wrong:
-            layout.label(text="Check Scale and Unit Scale", icon="BLANK1")
+        if size is not None:
+            draw_size(layout, "Size in file", size, "check Scale and Unit Scale")
 
     def _batch_groups(self, context: bpy.types.Context) -> list:
         """``(object, filepath)`` for each file of a batch export."""
@@ -1114,11 +1103,11 @@ class Export3MF(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
 
             global_scale = export_unit_scale(context, ctx.options.global_scale)
             size = _size_mm(mesh_objects, global_scale)
-            if size and _implausible(size):
+            if size and size_problem(size):
                 ctx.safe_report(
                     {"WARNING"},
-                    "Exported size is " + " x ".join(f"{d:.4g}" for d in size)
-                    + " mm. Check Scale and the scene's Unit Scale",
+                    "Exported size is " + " x ".join(format_length(d) for d in size)
+                    + ". Check Scale and the scene's Unit Scale",
                 )
 
             # Check if any mesh has materials assigned.

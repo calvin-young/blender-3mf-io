@@ -385,7 +385,7 @@ class ThreeMFPreferences(bpy.types.AddonPreferences):
             ("AUTO", "Smooth by Angle",
              "Add a Smooth by Angle modifier: smooth, except for edges sharper than the angle"),
         ],
-        default="FLAT",
+        default="AUTO",
     )
 
     default_auto_smooth_angle: bpy.props.FloatProperty(
