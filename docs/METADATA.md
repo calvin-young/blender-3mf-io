@@ -130,6 +130,7 @@ times included, along with the export time. The finer options are in
   `urn:blender-3mf` URI, reading the old one too. To raise in the upstream discussion.
 - Should the export settings be recorded in the file (one `b3mf:export` JSON entry)? Useful for tracing a file back
   to how it was exported; costs nothing to strip.
-- Which readers keep which mechanism: queued, see [TESTING_AND_BENCHMARKS.md](TESTING_AND_BENCHMARKS.md), "Which
-  readers keep metadata".
-- A gold-standard part file and build file in the 3MF Zoo, once the reader test is in.
+- Which readers keep which mechanism: see [TESTING_AND_BENCHMARKS.md](TESTING_AND_BENCHMARKS.md), "Which
+  readers keep metadata". So far no other program that writes 3MF keeps object metadata, so the lookup by mesh
+  fingerprint (Hybrid workflows, above) is needed for builds packed elsewhere.
+- The recommended layouts as files: 3MF Zoo `core-26-meta-gold-part` and `core-27-meta-gold-build`.
