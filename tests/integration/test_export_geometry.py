@@ -199,8 +199,11 @@ class TestUnitScaleInVertices(Blender3mfTestCase):
         self.assertEqual(transform[9:], [100, 50, 10])
 
     def test_metre_scene(self):
-        """Default scene (1 unit = 1 m): the cube is 20 m, in the vertices, not in the transform."""
-        width, transform = self._export(1.0, "METERS")
+        """Metres with Unit Scale 1 mean 1 m when the Unit Scale 1 Means Millimeters preference is off:
+        the cube is 20 m, in the vertices, not in the transform."""
+        from unittest import mock
+        with mock.patch("io_mesh_3mf.common.units.scale_one_is_millimetres", return_value=False):
+            width, transform = self._export(1.0, "METERS")
         self.assertEqual(width, 20000.0)
         self.assertEqual(transform[:9], [1, 0, 0, 0, 1, 0, 0, 0, 1])
         self.assertEqual(transform[9:], [100000, 50000, 10000])
@@ -252,7 +255,7 @@ class TestUnitlessScene(Blender3mfTestCase):
     def test_preference_off_reads_metres(self):
         """With the preference off, 1 unit is 1 m, as in upstream."""
         from unittest import mock
-        with mock.patch("io_mesh_3mf.common.units.unitless_is_millimetres", return_value=False):
+        with mock.patch("io_mesh_3mf.common.units.scale_one_is_millimetres", return_value=False):
             width, transform = self._export()
         self.assertEqual(width, 20000.0)
         self.assertEqual(transform[9:], [100000, 50000, 10000])

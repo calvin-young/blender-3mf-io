@@ -61,7 +61,7 @@ class TestExternalModelIds(unittest.TestCase):
         meshes = [o for o in bpy.data.objects if o.type == "MESH"]
         self.assertEqual(sum(len(o.data.polygons) for o in meshes), 2)
         # The second part keeps its own size, not a copy of the first part's mesh, and its own placement.
-        xs = sorted(round((o.matrix_world @ v.co).x * 1000, 3) for o in meshes for v in o.data.vertices)
+        xs = sorted(round((o.matrix_world @ v.co).x, 3) for o in meshes for v in o.data.vertices)  # 1 unit = 1 mm
         self.assertAlmostEqual(xs[-1], 70.0, places=2)
         self.assertAlmostEqual(xs[0], 0.0, places=2)
 

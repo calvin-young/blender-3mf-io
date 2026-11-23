@@ -276,5 +276,5 @@ class SharedBuildItemMeshTests(Blender3mfTestCase):
         self.assertEqual([round(o.matrix_world.translation.x / scale) for o in objects], [10, 20, 30])
 
     def test_origin_change_keeps_separate_meshes(self):
-        objects = self.imported(origin_to_geometry="CENTER")
+        objects = self.imported(origin_to_geometry="CENTER", link_identical_meshes=False)
         self.assertEqual(len({o.data.name for o in objects}), 3)

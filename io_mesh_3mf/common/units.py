@@ -58,27 +58,34 @@ threemf_to_metre: Dict[str, float] = {
 }
 
 
-def unitless_is_millimetres(context: bpy.types.Context) -> bool:
-    """Whether a scene with Unit System None counts 1 unit as 1 mm (the preference; on by default)."""
+def scale_one_is_millimetres(context: bpy.types.Context) -> bool:
+    """Whether Unit Scale 1 counts 1 unit as 1 mm (the preference; on by default)."""
     addon = context.preferences.addons.get(__package__.rsplit(".", 1)[0])
     preferences = addon.preferences if addon else None
-    return getattr(preferences, "unitless_millimeters", True)
+    return getattr(preferences, "scale_one_millimeters", True)
 
 
 def blender_unit_to_metre_scale(context: bpy.types.Context) -> float:
     """The length of one Blender unit in metres, for the scene's unit settings.
 
-    With Unit System None, Blender has no unit, and 3D printing programs read
-    its numbers as millimetres: 1 unit is 1 mm (times Unit Scale), unless the
-    "Unitless Scenes in Millimeters" preference is off, which reads it as 1 m
-    like Blender's metric default.
+    3D printing programs read unitless numbers as millimetres, and Blender's own
+    STL and OBJ exporters write Blender's numbers as they are. So by default a
+    scene with Unit Scale 1 (Blender's default scene, or Unit System None) has
+    1 unit = 1 mm, whatever length unit it displays. A scene whose Unit Scale was
+    changed means it: 1 unit is that many metres (0.001 for millimetres), or
+    that many millimetres with Unit System None. The "Unit Scale 1 Means
+    Millimeters" preference turns this off, for 1 unit = Unit Scale metres in
+    every scene, as Blender's unit settings define it.
     """
     units = context.scene.unit_settings
     blender_unit_to_metre = units.scale_length
     if blender_unit_to_metre == 0:  # Fallback for special cases.
         blender_unit_to_metre = blender_to_metre[units.length_unit]
-    if units.system == "NONE" and unitless_is_millimetres(context):
-        blender_unit_to_metre *= 0.001
+    if scale_one_is_millimetres(context):
+        if units.system == "NONE":
+            blender_unit_to_metre *= 0.001
+        elif abs(units.scale_length - 1.0) < 1e-6:
+            blender_unit_to_metre = 0.001
     return blender_unit_to_metre
 
 

@@ -273,10 +273,11 @@ class ThreeMFPreferences(bpy.types.AddonPreferences):
         precision=4,
     )
 
-    unitless_millimeters: bpy.props.BoolProperty(
-        name="Unitless Scenes in Millimeters",
-        description="With the scene's Unit System set to None, 1 Blender unit is 1 mm on import and export, "
-                    "as 3D printing programs read it. Off: 1 unit is 1 m, Blender's metric default",
+    scale_one_millimeters: bpy.props.BoolProperty(
+        name="Unit Scale 1 Means Millimeters",
+        description="In a scene with Unit Scale 1 (Blender's default scene, or Unit System None), 1 Blender unit "
+                    "is 1 mm on import and export, as 3D printing programs and Blender's STL exporter treat it. "
+                    "Off: 1 unit is 1 m, as Blender's unit settings define it",
         default=True,
     )
 
@@ -339,6 +340,11 @@ class ThreeMFPreferences(bpy.types.AddonPreferences):
         name="Join Components",
         description="Import a part made of several components as one object",
         default=False,
+    )
+    default_link_identical_meshes: bpy.props.BoolProperty(
+        name="Link Identical Meshes",
+        description="Copies of the same part, stored as separate meshes in the file, share one mesh after import",
+        default=True,
     )
     default_import_location: bpy.props.EnumProperty(
         name="Import Location",
@@ -612,7 +618,7 @@ class ThreeMFPreferences(bpy.types.AddonPreferences):
             col.separator()
             col.prop(self, "default_export_location", text="Location")
             col.prop(self, "default_global_scale", text="Scale")
-            col.prop(self, "unitless_millimeters")
+            col.prop(self, "scale_one_millimeters")
             col.prop(self, "default_coordinate_precision", text="Precision")
 
         # --- Archive ---
@@ -635,7 +641,7 @@ class ThreeMFPreferences(bpy.types.AddonPreferences):
         """Mirror the layout of ``Import3MF.draw()``."""
         layout.prop(self, "default_scene_unit")
         layout.prop(self, "default_import_global_scale", text="Scale Multiplier")
-        layout.prop(self, "unitless_millimeters")
+        layout.prop(self, "scale_one_millimeters")
         layout.separator()
 
         box = layout.box()
@@ -645,6 +651,7 @@ class ThreeMFPreferences(bpy.types.AddonPreferences):
         box.prop(self, "default_reuse_images")
         box.prop(self, "default_object_names")
         box.prop(self, "default_join_components")
+        box.prop(self, "default_link_identical_meshes")
 
         layout.separator()
         placement_box = layout.box()

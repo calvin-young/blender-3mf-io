@@ -1,8 +1,8 @@
 """
 Integration tests: import and export sizes for every scene unit setup.
 
-Each setup is a Unit System, length unit and Unit Scale, with the "Unitless
-Scenes in Millimeters" preference on or off. Import reads a 20 mm cube from
+Each setup is a Unit System, length unit and Unit Scale, with the "Unit Scale
+1 Means Millimeters" preference on or off. Import reads a 20 mm cube from
 files in millimetres, inches and metres; export writes a 20 unit cube. Every
 case must keep the real size, and import must give scale 1 whenever one unit
 is the file's unit.
@@ -20,14 +20,17 @@ import bpy
 
 from test_base import Blender3mfTestCase
 
-# (label, system, length unit, Unit Scale, unitless preference)
+# (label, system, length unit, Unit Scale, preference, mm per Blender unit)
 SETUPS = [
-    ("None, scale 1", "NONE", None, 1.0, True),
-    ("None, scale 1, preference off", "NONE", None, 1.0, False),
-    ("Metric, m, scale 1 (Blender's default)", "METRIC", "METERS", 1.0, True),
-    ("Metric, mm, scale 1", "METRIC", "MILLIMETERS", 1.0, True),
-    ("Metric, mm, scale 0.001", "METRIC", "MILLIMETERS", 0.001, True),
-    ("Imperial, in, scale 1", "IMPERIAL", "INCHES", 1.0, True),
+    ("None, scale 1", "NONE", None, 1.0, True, 1.0),
+    ("Metric, m, scale 1 (Blender's default)", "METRIC", "METERS", 1.0, True, 1.0),
+    ("Metric, mm, scale 1", "METRIC", "MILLIMETERS", 1.0, True, 1.0),
+    ("Imperial, in, scale 1", "IMPERIAL", "INCHES", 1.0, True, 1.0),
+    ("Metric, mm, scale 0.001", "METRIC", "MILLIMETERS", 0.001, True, 1.0),
+    ("Metric, cm, scale 0.01", "METRIC", "CENTIMETERS", 0.01, True, 10.0),
+    ("None, scale 1, preference off", "NONE", None, 1.0, False, 1000.0),
+    ("Metric, m, scale 1, preference off", "METRIC", "METERS", 1.0, False, 1000.0),
+    ("Metric, mm, scale 0.001, preference off", "METRIC", "MILLIMETERS", 0.001, False, 1.0),
 ]
 FILE_UNITS = {"millimeter": 1.0, "inch": 25.4, "meter": 1000.0}  # mm per file unit
 
@@ -98,13 +101,9 @@ class TestUnitMatrix(Blender3mfTestCase):
 
     def test_matrix(self):
         rows = []
-        for label, system, length_unit, scale, unitless_mm in SETUPS:
+        for label, system, length_unit, scale, preference, unit_mm in SETUPS:
             with self.subTest(setup=label), mock.patch(
-                    "io_mesh_3mf.common.units.unitless_is_millimetres", return_value=unitless_mm):
-                if system == "NONE":
-                    unit_mm = 1.0 if unitless_mm else 1000.0
-                else:
-                    unit_mm = 1000.0 * scale
+                    "io_mesh_3mf.common.units.scale_one_is_millimetres", return_value=preference):
                 imports = []
                 for file_unit, per in FILE_UNITS.items():
                     self.clean_scene()

@@ -669,28 +669,33 @@ class Export3MF(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
         """Initialize properties from preferences when the export dialog is opened."""
         prefs = context.preferences.addons.get(__package__.rsplit(".", 1)[0])
         if prefs and prefs.preferences:
-            self.coordinate_precision = prefs.preferences.default_coordinate_precision
-            self.compression_level = prefs.preferences.default_compression_level
-            self.strip_identifying_data = prefs.preferences.default_strip_identifying_data
-            self.export_hidden = prefs.preferences.default_export_hidden
-            self.use_mesh_modifiers = prefs.preferences.default_apply_modifiers
-            self.global_scale = prefs.preferences.default_global_scale
-            self.export_location = prefs.preferences.default_export_location
-            self.use_orca_format = prefs.preferences.default_multi_material_export
-            self.subdivision_depth = prefs.preferences.default_subdivision_depth
-            self.thumbnail_mode = prefs.preferences.default_thumbnail_mode
-            self.thumbnail_resolution = prefs.preferences.default_thumbnail_resolution
-            self.use_selection = prefs.preferences.default_use_selection
-            self.include_disabled = prefs.preferences.default_include_disabled
-            self.use_components = prefs.preferences.default_use_components
-            self.flatten_hierarchy = prefs.preferences.default_flatten_hierarchy
-            self.mmu_slicer_format = prefs.preferences.default_mmu_slicer_format
-            self.export_mode = prefs.preferences.default_export_mode
-            self.batch_keep_hierarchy = prefs.preferences.default_batch_keep_hierarchy
-            self.part_names = prefs.preferences.default_part_names
-            self.export_as = prefs.preferences.default_export_as
-            self.printer_type = prefs.preferences.default_printer_type
-            self.print_parts = prefs.preferences.default_print_parts
+            # A value passed in by the caller (a script, another add-on) wins over the saved default.
+            for name, default in (
+                ("coordinate_precision", "default_coordinate_precision"),
+                ("compression_level", "default_compression_level"),
+                ("strip_identifying_data", "default_strip_identifying_data"),
+                ("export_hidden", "default_export_hidden"),
+                ("use_mesh_modifiers", "default_apply_modifiers"),
+                ("global_scale", "default_global_scale"),
+                ("export_location", "default_export_location"),
+                ("use_orca_format", "default_multi_material_export"),
+                ("subdivision_depth", "default_subdivision_depth"),
+                ("thumbnail_mode", "default_thumbnail_mode"),
+                ("thumbnail_resolution", "default_thumbnail_resolution"),
+                ("use_selection", "default_use_selection"),
+                ("include_disabled", "default_include_disabled"),
+                ("use_components", "default_use_components"),
+                ("flatten_hierarchy", "default_flatten_hierarchy"),
+                ("mmu_slicer_format", "default_mmu_slicer_format"),
+                ("export_mode", "default_export_mode"),
+                ("batch_keep_hierarchy", "default_batch_keep_hierarchy"),
+                ("part_names", "default_part_names"),
+                ("export_as", "default_export_as"),
+                ("printer_type", "default_printer_type"),
+                ("print_parts", "default_print_parts"),
+            ):
+                if not self.properties.is_property_set(name):
+                    setattr(self, name, getattr(prefs.preferences, default))
         if not self.filepath:
             # Name the file after the part when exporting a single part
             # (Blender's default is the .blend file's name).

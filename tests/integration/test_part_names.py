@@ -254,7 +254,7 @@ class TestPreferencesMirrorOptions(unittest.TestCase):
                 continue
             preference = renamed.get(option, f"default_{option}")
             self.assertIn(preference, preferences, f"{option} has no preference {preference}")
-            self.assertIn(f"self.{option} = prefs.preferences.{preference}", source,
+            self.assertIn(f'("{option}", "{preference}")', source,
                           f"{option} isn't set from the preferences when the dialog opens")
 
     def test_export_options(self):

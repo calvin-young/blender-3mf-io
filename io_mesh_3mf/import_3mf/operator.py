@@ -44,7 +44,8 @@ from ..common.extensions import get_extension_by_namespace
 from ..common.metadata import Metadata, MetadataEntry, declare_metadata_namespace
 from ..common.annotations import Annotations
 from ..common.size import draw_size, format_length, size_problem
-from ..common.units import blender_unit_to_metre_scale, export_unit_scale, threemf_to_metre
+from ..common.units import blender_unit_to_metre_scale, export_unit_scale, scale_one_is_millimetres, threemf_to_metre
+from .linking import link_identical_meshes
 from .preview import build_size
 from .context import ImportContext, ImportOptions
 from . import archive as archive_mod
@@ -172,6 +173,13 @@ class Import3MF(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
                     "instead of a parent with a child object per component",
         default=False,
     )
+    link_identical_meshes: bpy.props.BoolProperty(
+        name="Link Identical Meshes",
+        description="Copies of the same part, stored as separate meshes in the file, share one mesh after "
+                    "import (like linked duplicates), each copy staying where it is. Editing one copy's mesh "
+                    "then changes them all",
+        default=True,
+    )
     import_location: bpy.props.EnumProperty(
         name="Location",
         description="Where to place imported objects in the scene",
@@ -290,6 +298,7 @@ class Import3MF(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
         box.prop(self, "reuse_images")
         box.prop(self, "object_names")
         box.prop(self, "join_components")
+        box.prop(self, "link_identical_meshes")
 
         layout.separator()
         placement_box = layout.box()
@@ -325,28 +334,27 @@ class Import3MF(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
         """Initialize properties from preferences when the import dialog opens."""
         prefs = context.preferences.addons.get(__package__.rsplit(".", 1)[0])
         if prefs and prefs.preferences:
-            self.global_scale = prefs.preferences.default_import_global_scale
-            self.import_materials = prefs.preferences.default_import_materials
-            self.reuse_materials = prefs.preferences.default_reuse_materials
-            self.reuse_images = prefs.preferences.default_reuse_images
-            self.object_names = prefs.preferences.default_object_names
-            self.join_components = prefs.preferences.default_join_components
-            self.import_location = prefs.preferences.default_import_location
-            self.origin_to_geometry = prefs.preferences.default_origin_to_geometry
-            if hasattr(prefs.preferences, "default_scene_unit"):
-                self.scene_unit = prefs.preferences.default_scene_unit
-            if hasattr(prefs.preferences, "default_grid_spacing"):
-                self.grid_spacing = prefs.preferences.default_grid_spacing
-            if hasattr(prefs.preferences, "default_shading"):
-                self.shading = prefs.preferences.default_shading
-            if hasattr(prefs.preferences, "default_auto_smooth_angle"):
-                self.auto_smooth_angle = prefs.preferences.default_auto_smooth_angle
-            if hasattr(prefs.preferences, "default_paint_uv_method"):
-                self.paint_uv_method = prefs.preferences.default_paint_uv_method
-            if hasattr(prefs.preferences, "default_paint_texture_size"):
-                self.paint_texture_size = prefs.preferences.default_paint_texture_size
-            if hasattr(prefs.preferences, "default_shared_paint_texture"):
-                self.shared_paint_texture = prefs.preferences.default_shared_paint_texture
+            # A value passed in by the caller wins over the saved default.
+            for name, default in (
+                ("global_scale", "default_import_global_scale"),
+                ("import_materials", "default_import_materials"),
+                ("reuse_materials", "default_reuse_materials"),
+                ("reuse_images", "default_reuse_images"),
+                ("object_names", "default_object_names"),
+                ("join_components", "default_join_components"),
+                ("link_identical_meshes", "default_link_identical_meshes"),
+                ("import_location", "default_import_location"),
+                ("origin_to_geometry", "default_origin_to_geometry"),
+                ("scene_unit", "default_scene_unit"),
+                ("grid_spacing", "default_grid_spacing"),
+                ("shading", "default_shading"),
+                ("auto_smooth_angle", "default_auto_smooth_angle"),
+                ("paint_uv_method", "default_paint_uv_method"),
+                ("paint_texture_size", "default_paint_texture_size"),
+                ("shared_paint_texture", "default_shared_paint_texture"),
+            ):
+                if hasattr(prefs.preferences, default) and not self.properties.is_property_set(name):
+                    setattr(self, name, getattr(prefs.preferences, default))
 
         # If files are already provided (drag-drop), show popup instead of file browser
         if getattr(self, "directory", "") and getattr(self, "files", None):
@@ -577,9 +585,15 @@ class Import3MF(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
             _sync_filaments_from_mesh(context)
             debug(f"Force-synced filament palette: {len(settings.filaments)} slots")
 
+        linked = shared = 0
+        if self.link_identical_meshes:
+            linked, shared = link_identical_meshes(ctx.imported_objects)
+
         debug(f"Imported {ctx.num_loaded} objects from 3MF files.")
         self.safe_report({"INFO"}, f"Imported {ctx.num_loaded} objects from 3MF files")
         self._report_size(context, ctx)
+        if linked:
+            self._show_linked_notice(context, linked, shared)
 
         # Show paint popup if needed.
         self._show_paint_popup(ctx)
@@ -865,6 +879,24 @@ class Import3MF(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
 
     # ----- Unit scale -------------------------------------------------------
 
+    def _show_linked_notice(self, context: bpy.types.Context, linked: int, shared: int) -> None:
+        """Say that copies now share meshes, in a popup that's hard to miss, and in the status bar."""
+        # Each shared mesh is used by its first object and by the copies linked to it.
+        objects = linked + shared
+        meshes = "1 mesh" if shared == 1 else f"{shared} meshes"
+        summary = f"{objects} copies of identical parts now share {meshes} (Link Identical Meshes)"
+        self.safe_report({"INFO"}, summary)
+        if bpy.app.background or context.window_manager is None:
+            return
+
+        def draw(menu, _context):
+            col = menu.layout.column()
+            col.label(text=f"{objects} copies of identical parts now share {meshes}, each copy in place.")
+            col.label(text="Editing one copy's mesh changes them all. Object > Relations > Make Single User undoes it.")
+            col.label(text="Turn this off with Link Identical Meshes in the import options or preferences.")
+
+        context.window_manager.popup_menu(draw, title="Linked identical meshes", icon="LINKED")
+
     def _report_size(self, context: bpy.types.Context, ctx: ImportContext) -> None:
         """Warn when what was imported is too small or too large to be a printable part."""
         import mathutils
@@ -893,8 +925,8 @@ class Import3MF(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
         draw_size(layout, "Size in file", size, "the file's unit is wrong")
         if self.scene_unit == "KEEP":
             unit_m = blender_unit_to_metre_scale(context)
-        else:
-            unit_m = 1.0  # The scene unit is set with Unit Scale 1.
+        else:  # The scene unit is set with Unit Scale 1.
+            unit_m = 0.001 if scale_one_is_millimetres(context) else 1.0
         scale = threemf_to_metre[unit] / unit_m * self.global_scale
         row = layout.row()
         if abs(scale - 1) < 1e-6:
