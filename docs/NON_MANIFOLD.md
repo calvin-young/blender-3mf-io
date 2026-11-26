@@ -4,22 +4,23 @@ Status: first pass, 2026-11-25. Eleven synthetic defect parts (10 mm cubes), mad
 exported with Blender's STL and OBJ exporters and this add-on's 3MF exporter. "Blender" uses the checks the 3D
 Print Toolbox makes (non-manifold edges and vertices, flipped edges, zero-area faces, intersecting faces).
 PrusaSlicer 2.9.4 (`--info`) gave the same result as OrcaSlicer in every case and every format, so it has no
-column of its own; both repair STL with admesh's algorithms, and admesh itself is the last column. Netfabb and
-MiniMagics are queued (they need the Windows VM).
+column of its own; both repair STL with admesh's algorithms, and admesh is a column. Netfabb 2027 (trial) was read
+through its Lua scripting (`load` then the mesh's `isok`, `ismanifold`, `isoriented`, boundary edges, holes and
+shells); its repair step's self-intersection and degenerate-face checks weren't run. MiniMagics is queued.
 
-| Defect | Blender | Blender, after an STL round trip | trimesh 5.2 (3MF) | OrcaSlicer 2.4.2, 3MF | OrcaSlicer, STL | OrcaSlicer, OBJ | admesh 0.98.5, STL |
-|---|---|---|---|---|---|---|---|
-| clean | clean | clean | watertight | manifold | manifold | manifold | clean |
-| hole | 4 edges | 4 edges | not watertight | not manifold (4 open edges) | not manifold (4 open edges) | not manifold (4 open edges) | 4 disconnected facets |
-| two shells touching along an edge, separate vertices | **clean** | **1 edge, 2 vertices** | not watertight | manifold | manifold | manifold | clean, 2 parts |
-| two shells touching along an edge, shared vertices | 1 edge, 2 vertices | 1 edge, 2 vertices | not watertight | manifold | manifold | manifold | clean, 2 parts |
-| two shells touching at a corner, separate vertices | **clean** | **1 vertex** | watertight | manifold | manifold | manifold | clean, 2 parts |
-| overlapping shells | 6 intersecting faces | 10 intersecting faces | watertight | manifold | manifold | manifold | clean, 2 parts |
-| one flipped face | 4 flipped | 4 flipped | winding inconsistent | not manifold (8 open edges) | manifold (repaired on load) | not manifold (8 open edges) | clean (repaired) |
-| unwelded seam (coincident vertices not merged) | 8 edges | **clean** | watertight | not manifold (8 open edges) | manifold | not manifold (8 open edges) | clean |
-| internal face | 4 edges, intersecting | 4 edges | not watertight | not manifold (4 open edges) | not manifold (4 open edges) | not manifold (4 open edges) | 2 disconnected facets |
-| T-junction | 3 edges | 3 edges | not watertight | not manifold (3 open edges) | manifold (repaired on load) | refused (face with more than 4 sides) | 3 disconnected facets |
-| zero-area sliver | 1 zero-area face | 1 zero-area face | watertight | manifold | manifold | refused (face with more than 4 sides) | clean |
+| Defect | Blender | Blender, after an STL round trip | trimesh 5.2 (3MF) | OrcaSlicer 2.4.2, 3MF | OrcaSlicer, STL | OrcaSlicer, OBJ | admesh 0.98.5, STL | Netfabb 2027, STL | Netfabb, 3MF and OBJ |
+|---|---|---|---|---|---|---|---|---|---|
+| clean | clean | clean | watertight | manifold | manifold | manifold | clean | ok | ok |
+| hole | 4 edges | 4 edges | not watertight | not manifold (4 open edges) | not manifold (4 open edges) | not manifold (4 open edges) | 4 disconnected facets | 4 boundary edges, 1 hole | same |
+| two shells touching along an edge, separate vertices | **clean** | **1 edge, 2 vertices** | not watertight | manifold | manifold | manifold | clean, 2 parts | **4 boundary edges, 2 holes** | **ok**, 2 shells |
+| two shells touching along an edge, shared vertices | 1 edge, 2 vertices | 1 edge, 2 vertices | not watertight | manifold | manifold | manifold | clean, 2 parts | 4 boundary edges, 2 holes | ok, 2 shells |
+| two shells touching at a corner, separate vertices | **clean** | **1 vertex** | watertight | manifold | manifold | manifold | clean, 2 parts | ok, 2 shells | ok, 2 shells |
+| overlapping shells | 6 intersecting faces | 10 intersecting faces | watertight | manifold | manifold | manifold | clean, 2 parts | ok, 2 shells | ok, 2 shells |
+| one flipped face | 4 flipped | 4 flipped | winding inconsistent | not manifold (8 open edges) | manifold (repaired on load) | not manifold (8 open edges) | clean (repaired) | not oriented | not oriented |
+| unwelded seam (coincident vertices not merged) | 8 edges | **clean** | watertight | not manifold (8 open edges) | manifold | not manifold (8 open edges) | clean | ok | 8 boundary edges, 2 holes |
+| internal face | 4 edges, intersecting | 4 edges | not watertight | not manifold (4 open edges) | not manifold (4 open edges) | not manifold (4 open edges) | 2 disconnected facets | 4 boundary edges, 1 hole | same |
+| T-junction | 3 edges | 3 edges | not watertight | not manifold (3 open edges) | manifold (repaired on load) | refused (face with more than 4 sides) | 3 disconnected facets | 3 boundary edges, 1 hole | same |
+| zero-area sliver | 1 zero-area face | 1 zero-area face | watertight | manifold | manifold | refused (face with more than 4 sides) | clean | ok | ok |
 
 ## For Blender users
 
@@ -42,6 +43,8 @@ MiniMagics are queued (they need the Windows VM).
   joining or packing) are clean in Blender and non-manifold in anything that reads STL. Unwelded seams go the
   other way: Blender flags them, and STL hides them. 3MF and OBJ keep Blender's vertex indices, so they show what
   Blender shows.
+- **Netfabb shows the STL effect directly:** two shells touching along an edge are fine in Blender, in 3MF and in
+  OBJ, and become 4 boundary edges and 2 holes in Netfabb when read from STL.
 - **"0 non-manifold" in Blender doesn't cover touching shells or overlapping shells.** Blender's non-manifold
   count ignores both; the Toolbox's separate Intersections check finds overlaps, but nothing flags touching
   shells with separate vertices. That's the likely gap between Blender's 0 and other programs' reports.
