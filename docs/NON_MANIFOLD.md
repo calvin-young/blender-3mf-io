@@ -6,7 +6,8 @@ Print Toolbox makes (non-manifold edges and vertices, flipped edges, zero-area f
 PrusaSlicer 2.9.4 (`--info`) gave the same result as OrcaSlicer in every case and every format, so it has no
 column of its own; both repair STL with admesh's algorithms, and admesh is a column. Netfabb 2027 (trial) was read
 through its Lua scripting (`load` then the mesh's `isok`, `ismanifold`, `isoriented`, boundary edges, holes and
-shells); its repair step's self-intersection and degenerate-face checks weren't run. MiniMagics is queued.
+shells); its repair step's self-intersection and degenerate-face checks weren't run. MiniMagics 23.5 (Part
+info, Diagnostics) was checked on four cases, below the table.
 
 | Defect | Blender | Blender, after an STL round trip | trimesh 5.2 (3MF) | OrcaSlicer 2.4.2, 3MF | OrcaSlicer, STL | OrcaSlicer, OBJ | admesh 0.98.5, STL | Netfabb 2027, STL | Netfabb, 3MF and OBJ |
 |---|---|---|---|---|---|---|---|---|---|
@@ -21,6 +22,18 @@ shells); its repair step's self-intersection and degenerate-face checks weren't 
 | internal face | 4 edges, intersecting | 4 edges | not watertight | not manifold (4 open edges) | not manifold (4 open edges) | not manifold (4 open edges) | 2 disconnected facets | 4 boundary edges, 1 hole | same |
 | T-junction | 3 edges | 3 edges | not watertight | not manifold (3 open edges) | manifold (repaired on load) | refused (face with more than 4 sides) | 3 disconnected facets | 3 boundary edges, 1 hole | same |
 | zero-area sliver | 1 zero-area face | 1 zero-area face | watertight | manifold | manifold | refused (face with more than 4 sides) | clean | ok | ok |
+
+### MiniMagics 23.5
+
+| Defect | STL | 3MF |
+|---|---|---|
+| hole | not read (a scene mix-up in the test run) | 4 bad edges |
+| two shells touching along an edge, separate vertices | 0 bad edges, **2 shells: "contains errors and cannot be printed"** | same, with the vertices merged (14 points) |
+| one flipped face | 2 inverted normals, 8 bad edges, 2 shells | same |
+| unwelded seam | clean | clean (merged) |
+
+MiniMagics merges coincident vertices in every format, 3MF included, and treats any part with more than one shell
+as an error, so touching or overlapping shells are flagged even where no edge is bad.
 
 ## For Blender users
 

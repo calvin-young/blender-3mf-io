@@ -126,19 +126,20 @@ and saves or exports it again. The design this feeds is [METADATA.md](METADATA.m
 |---|---|---|---|---|---|
 | This add-on, 2.7.7-fork.15 (import, export Standard) | kept, with its namespace | kept | moved to each copy's object | kept | replaced with its own |
 | Netfabb 2027, Lua `load3mf` and `saveto3mf` (mesh level) | dropped | dropped | dropped | dropped | dropped (no metadata written) |
-| Netfabb 2021.1, Export Part from the GUI | queued | queued | queued | queued | queued |
-| MiniMagics 23.5 | queued | queued | queued | queued | queued |
+| Netfabb 2021.1, Export Part from the GUI | not tested: the installed 2021 stopped on a licensing error (2026-11-26) | | | | |
+| MiniMagics 23.5 (Save Selected Part(s) As, 3MF) | dropped | dropped | dropped | dropped | dropped (writes no metadata at all) |
 | Houdini 20.5, Palace3D Read3mf, Save3mf | dropped | dropped | dropped | dropped | replaced (`Houdini 3MF Export 3.1`); Read3mf keeps Title, Designer, Description, Copyright, Application as detail attributes, which Save3mf doesn't write back |
 | Rhino 8 (Import, Export) | value kept, but every prefix becomes `customXMLNS0` with a blank namespace URI | dropped | dropped | dropped | kept as `customXMLNS0:Application`, like Designer and CreationDate, so readers no longer see them as the core names |
 | PrusaSlicer 2.9.6 | queued | queued | queued | queued | queued |
 | OrcaSlicer 2.4.2 (Bambu Studio alike), `--export-3mf` | kept, but its namespace declaration dropped (undeclared prefix) | moved to model metadata, last value only | moved to model metadata, last value only | dropped | replaced (`BambuStudio-...`); Designer kept, CreationDate emptied |
-| SmartStream 2.0, 3D Builder | can't save 3MF: check that the files load | | | | |
+| SmartStream 2.0, 3D Builder | can't save 3MF; all four files load (core-23 as its four copies) | | | | |
 
 Tested 2026-11-21. Only this add-on keeps object and item metadata; every other program that writes 3MF loses
 it, and only Rhino and OrcaSlicer keep model metadata at all, both damaging its namespace. So generator
 parameters survive a trip through another program only in this add-on: METADATA.md's fallback (match parts to
-their part files by mesh) is needed for builds packed elsewhere. Not yet tested: Netfabb's own Export Part,
-MiniMagics, PrusaSlicer, and whether SmartStream and 3D Builder load the four files.
+their part files by mesh) is needed for builds packed elsewhere. MiniMagics was saved from core-23 only; it writes
+no metadata element of any kind, so the other files can't fare better. Not yet tested: Netfabb's own Export Part
+(licence), PrusaSlicer.
 
 ## What programs write
 
