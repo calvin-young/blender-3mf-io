@@ -30,8 +30,9 @@ MiniMagics are queued (they need the Windows VM).
 - **Check after a round trip when you export STL.** Export, import the STL into an empty scene, and check again:
   that's what every STL reader sees. STL welds coincident vertices, so it can add problems (touching shells) and
   hide others (unwelded seams).
-- **3MF and OBJ show other programs what Blender shows**, vertex for vertex. A 3MF that's clean in Blender is
-  clean, by these checks, in every program tested so far.
+- **3MF and OBJ keep Blender's vertices as they are**, so a program reading them sees the same connectivity as
+  Blender. Programs that weld coincident vertices themselves (trimesh does, in every format) still see touching
+  shells as non-manifold, so Merge by Distance first is the safe habit.
 - **Slicers repair STL silently.** OrcaSlicer and PrusaSlicer fix flipped faces and some slivers on load and then
   report "manifold". A part that's clean in a slicer can still be flagged by a stricter build preparation tool.
 
