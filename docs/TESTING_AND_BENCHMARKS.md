@@ -212,3 +212,9 @@ Blender rows: time inside Blender for import (+ export, Standard). Other tools: 
 | **bucket-40**: Netfabb, 8.43M unique / 9.49M placed triangles, 144.0 MB, components, repeated items | 99.6 / 10.3 GB | 27.4 / 2.1 GB | 22.9 / 340 MB | 70.4 / 12.7 GB | – | 12.0 (empty) / 4.6 GB | 39.0 / 2.0 GB | 56.0 |
 | **bucket-33**: Magics, 9.95M unique / 19.90M placed triangles, 320.3 MB, layered textures, repeated items | – | 129.8 / 9.3 GB | – | – | – | – | – | – |
 
+
+## Texture tiling
+
+MiniMagics 23.5 and SmartStream 2.0 repeat a texture outside its image whatever `tilestyle` says (`none` or
+`clamp` included), so texture coordinates outside 0 to 1 show repeated image there. Found while testing Decal
+Press (2026-11-26), which now keeps every texture coordinate inside the image.
